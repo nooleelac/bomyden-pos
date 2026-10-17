@@ -4,7 +4,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isManager } from '../../auth/guards'
-import { describeLine, toSendLine, vnd, type PickerState } from '../../menu/picker'
+import { describeLine, quoteLine, toSendLine, vnd, type PickerState } from '../../menu/picker'
+import { draftKey, useCart } from '../../menu/cart'
 import { newId } from '../../menu/repo'
 import { ItemPicker } from '../../menu/screens/ItemPicker'
 import { OrderScreen } from '../../menu/screens/OrderScreen'
@@ -22,7 +23,9 @@ import { SharedOrderSheet } from './FloorMap'
 import { Sheet } from './Sheet'
 
 type Dialog =
-  | { kind: 'void'; line: Line }
+  | { kind: 'void'; line: Line; qty?: number }
+  | { kind: 'line'; line: Line }
+  | { kind: 'tax' }
   | { kind: 'modify'; line: Line }
   | { kind: 'actions' | 'moveTable' | 'merge' | 'shared' | 'release' | 'leave' | 'voidOrder' }
   | { kind: 'moveItems' | 'split'; picked: Record<string, number> }
@@ -31,14 +34,17 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
   const { floor, menu, repo, now, role } = props
   const order = floor.orders.find(o => o.id === props.orderId)
   const lines = useMemo(() => floor.lines.filter(l => l.orderId === props.orderId && !l.replacedBy), [floor.lines, props.orderId])
-  // a table opens on Gọi món even when it already ordered (gọi thêm is the common case); Đã gửi is one tap away
-  const [tab, setTab] = useState<'menu' | 'sent'>(() => (order?.payingAt ? 'sent' : 'menu'))
+  // a table that already ordered opens on Chi tiết hoá đơn (Sapo style); a new one straight on Gọi món
+  const [tab, setTab] = useState<'detail' | 'menu' | 'sent'>(() => (order?.payingAt || lines.length ? 'detail' : 'menu'))
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [selecting, setSelecting] = useState<null | 'moveItems' | 'split'>(null)
   const [picked, setPicked] = useState<Record<string, number>>({})
   const [rush, setRush] = useState<string | null>(null)
   const [delivery, setDelivery] = useState<string>('')
-  const [cartCount, setCartCount] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const cart = useCart(`bmd-cart-${props.orderId}`)
+  const [drafts, setDrafts] = cart
+  const cartCount = drafts.length
   const batch = useRef<string | null>(null)
   const fail = useCallback((e: unknown) => props.onError(errText(e)), [props])
 
@@ -101,68 +107,101 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
       await repo.sendLines(order.id, payload, batch.current, rush ? { rush: true, rushReason: rush } : {})
       batch.current = null
       setRush(null)
-      setTab('sent')
-      props.onInfo(`Đã gửi bếp lượt ${order.rounds + 1}`)
+      setTab('detail')
+      props.onInfo(`Đã lưu, gửi bếp lượt ${order.rounds + 1}`)
     } catch (e) {
       fail(e)
       throw e
     }
   }
+  // Lưu: the dishes added since the last save go to the kitchen as one round
+  const save = () => {
+    if (!drafts.length || saving) return
+    setSaving(true)
+    send(drafts.map(d => d.state)).then(
+      () => {
+        setDrafts([])
+        setSaving(false)
+      },
+      () => setSaving(false),
+    )
+  }
   const leave = () => (cartCount > 0 ? setDialog({ kind: 'leave' }) : go('ban'))
+  const back = () => {
+    if (tab !== 'detail' && (live.length || cartCount)) {
+      setTab('detail')
+      setSelecting(null)
+    } else leave()
+  }
   const act = (p: Promise<unknown>, after?: () => void) =>
     p.then(() => {
       setDialog(null)
       after?.()
     }, fail)
+  const pay = () => act(locked ? Promise.resolve() : repo.beginPayment(order.id), () => go(`thu-ngan/${order.id}`))
 
   const pickerFor = (l: Line): PickerState => ({ itemId: l.menuItemId, variantId: l.variantId, qty: l.qty, options: l.options, removals: l.removals, note: l.note })
+  // the unsent dishes, priced from the menu
+  const quotedDrafts = drafts.map(d => {
+    const item = menu.items.find(i => i.id === d.state.itemId)
+    return { d, item, q: item ? quoteLine(menu, item, d.state, now) : null }
+  })
+  const draftTotal = quotedDrafts.reduce((s, x) => s + (x.q?.total ?? 0), 0)
+  const draftBlocked = quotedDrafts.some(x => !x.q?.canAdd)
+  const bill = quoteBill(floor, order.id)
+  const qtySum = live.reduce((n, l) => n + l.qty, 0) + drafts.reduce((n, d) => n + d.state.qty, 0)
+  const vatRates = [...new Set(bill.vat.map(v => v.vatRate))].sort((a, b) => a - b)
+  const setDraftQty = (key: number, qty: number) => setDrafts(prev => (qty < 1 ? prev.filter(d => d.key !== key) : prev.map(d => (d.key === key ? { ...d, state: { ...d.state, qty } } : d))))
+  const sendExtra = (
+    <div className="send-extra">
+      <div className="chip-row">
+        <button type="button" className={'chip chip-sm chip-rush' + (rush ? ' is-on' : '')} aria-pressed={!!rush} onClick={() => setRush(rush ? null : RUSH_REASONS[0])}>
+          GẤP
+        </button>
+        {rush &&
+          RUSH_REASONS.map(r => (
+            <button key={r} type="button" className={'chip chip-sm' + (rush === r ? ' is-on' : '')} onClick={() => setRush(r)}>
+              {r}
+            </button>
+          ))}
+      </div>
+      {order.tables.length > 1 && (
+        <label className="field">
+          <span className="field-label">Ra bàn</span>
+          <select value={delivery} onChange={e => setDelivery(e.target.value)}>
+            <option value="">Bàn chính ({tableName(floor, order.tableId)})</option>
+            {order.tables
+              .filter(t => t.tableId !== order.tableId)
+              .map(t => (
+                <option key={t.tableId} value={t.tableId}>
+                  Bàn {tableName(floor, t.tableId)}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+    </div>
+  )
 
   return (
-    <div className="order-view">
-      <header className="order-head">
-        <button type="button" className="link" onClick={leave}>
-          ← Sơ đồ bàn
+    <div className={`order-view view-${tab}`}>
+      <header className="detail-head">
+        <button type="button" className="detail-back" aria-label="Quay lại" onClick={back}>
+          ←
         </button>
-        <div className="order-title">
-          <h1>{tableTitle(label)}</h1>
-          <span className="muted">
-            {order.kind === 'takeaway' ? order.customerName || 'Mang về' : order.positionLabel}
-            {group && <span className="badge"> {group}</span>}
-          </span>
-        </div>
-        <p className="order-meta">
-          {order.kind === 'dine_in' && (
-            <label className="inline-guests">
-              Khách
-              <input
-                type="number"
-                min={1}
-                max={99}
-                aria-label="Số khách"
-                defaultValue={order.guestCount ?? ''}
-                key={order.guestCount}
-                onBlur={e => Number(e.target.value) !== order.guestCount && repo.updateOrder(order.id, { guestCount: Number(e.target.value) }).catch(fail)}
-              />
-            </label>
-          )}
-          <span>Ngồi {formatDuration(now.getTime() - new Date(order.openedAt).getTime())}</span>
-          {order.billRequestedAt && <span className="badge badge-bill">Chờ thanh toán · tạm tính lần {order.billPrintCount}</span>}
-          {locked && <span className="badge badge-paying">Đang thanh toán ({order.payingBy})</span>}
-        </p>
-        <div className="order-note">
-          <input
-            aria-label="Ghi chú đơn cho bếp"
-            maxLength={NOTE_MAX}
-            placeholder="Ghi chú đơn (in đầu mọi phiếu bếp): sinh nhật, cần nhanh…"
-            defaultValue={order.note}
-            key={order.note}
-            onBlur={e => e.target.value.trim() !== order.note && repo.updateOrder(order.id, { note: e.target.value }).catch(fail)}
-          />
-          <label className={'allergy-toggle' + (order.allergy ? ' is-on' : '')}>
-            <input type="checkbox" checked={order.allergy} onChange={e => repo.updateOrder(order.id, { allergy: e.target.checked }).catch(fail)} />⚠ Dị ứng
-          </label>
-        </div>
+        <h1>{tab === 'menu' ? (live.length ? 'Gọi thêm món' : 'Gọi món') : tab === 'sent' ? 'Bếp làm tới đâu' : 'Chi tiết hoá đơn'}</h1>
+        <button type="button" className="detail-more" aria-label="Thao tác khác" onClick={() => setDialog({ kind: 'actions' })}>
+          ⋮
+        </button>
       </header>
+      <div className="detail-strip">
+        <span className="detail-kind">{order.kind === 'takeaway' ? '🥡 Mang về' : '🛎️ Dùng tại bàn'}</span>
+        <span className="detail-table">
+          {tableTitle(label)}
+          {order.kind === 'takeaway' ? (order.customerName ? ` · ${order.customerName}` : '') : order.positionLabel ? ` · ${order.positionLabel}` : ''}
+          {group && <span className="badge"> {group}</span>}
+        </span>
+      </div>
 
       {rejected.map(n => (
         <p key={n.id} className="notice-bar">
@@ -173,69 +212,129 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         </p>
       ))}
 
-      <nav className="tabs order-tabs" aria-label="Đơn">
-        <button type="button" className={'tab' + (tab === 'menu' ? ' is-on' : '')} onClick={() => setTab('menu')}>
-          {live.length ? 'Gọi thêm' : 'Gọi món'}{cartCount ? ` (${cartCount} chưa gửi)` : ''}
-        </button>
-        <button type="button" className={'tab' + (tab === 'sent' ? ' is-on' : '')} onClick={() => setTab('sent')}>
-          Đã gửi ({live.reduce((n, l) => n + l.qty, 0)})
-        </button>
-        <button type="button" className="tab tab-actions" onClick={() => setDialog({ kind: 'actions' })}>
-          Thao tác ▾
-        </button>
-      </nav>
+      {(tab === 'detail' || (tab === 'menu' && !live.length)) && (
+        <div className="order-head">
+          <p className="order-meta">
+            {order.kind === 'dine_in' && (
+              <label className="inline-guests">
+                Khách
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  aria-label="Số khách"
+                  defaultValue={order.guestCount ?? ''}
+                  key={order.guestCount}
+                  onBlur={e => Number(e.target.value) !== order.guestCount && repo.updateOrder(order.id, { guestCount: Number(e.target.value) }).catch(fail)}
+                />
+              </label>
+            )}
+            <span>Ngồi {formatDuration(now.getTime() - new Date(order.openedAt).getTime())}</span>
+            {order.billRequestedAt && <span className="badge badge-bill">Chờ thanh toán · tạm tính lần {order.billPrintCount}</span>}
+            {locked && <span className="badge badge-paying">Đang thanh toán ({order.payingBy})</span>}
+          </p>
+          <div className="order-note">
+            <input
+              aria-label="Ghi chú đơn cho bếp"
+              maxLength={NOTE_MAX}
+              placeholder="Ghi chú đơn (in đầu mọi phiếu bếp): sinh nhật, cần nhanh…"
+              defaultValue={order.note}
+              key={order.note}
+              onBlur={e => e.target.value.trim() !== order.note && repo.updateOrder(order.id, { note: e.target.value }).catch(fail)}
+            />
+            <label className={'allergy-toggle' + (order.allergy ? ' is-on' : '')}>
+              <input type="checkbox" checked={order.allergy} onChange={e => repo.updateOrder(order.id, { allergy: e.target.checked }).catch(fail)} />⚠ Dị ứng
+            </label>
+          </div>
+        </div>
+      )}
 
       <main>
-        <div hidden={tab !== 'menu'}>
-          {live.length > 0 && (
-            <button type="button" className="ordered-strip" onClick={() => setTab('sent')}>
-              <span>
-                🧾 Đã gọi <b>{live.reduce((n, l) => n + l.qty, 0)} món</b> · {vnd(total)}
-              </span>
-              <span className="ordered-strip-link">Xem món đã gọi ›</span>
+        {tab === 'detail' && (
+          <section className="bill-detail" aria-label="Món của đơn">
+            {live.length === 0 && drafts.length === 0 && <p className="empty">Chưa có món nào. Bấm “Thêm” để gọi món.</p>}
+            <ul className="detail-lines">
+              {live.map(l => {
+                const p = lineParts(l)
+                const pending = notices.some(n => n.lineId === l.id && n.kind === 'modify' && n.status === 'pending')
+                return (
+                  <li key={l.id} className="detail-line">
+                    <button type="button" className="detail-line-main" onClick={() => setDialog({ kind: 'line', line: l })}>
+                      <b className="detail-name">{l.name}</b>
+                      {l.variantName && <span>Size {l.variantName}</span>}
+                      {[...p.options, ...p.addons].length > 0 && <span>{[...p.options, ...p.addons].join(' · ')}</span>}
+                      {p.removals.length > 0 && <span className="removal">{p.removals.join(' · ')}</span>}
+                      {l.note && <i>✎ {l.note}</i>}
+                      <span className={`badge ls-badge ls-${l.status}`}>
+                        {LINE_STATUS_LABEL[l.status]}
+                        {pending ? ' · chờ bếp nhận sửa' : ''}
+                      </span>
+                    </button>
+                    <div className="detail-line-side">
+                      <b>{vnd(l.price * l.qty)}</b>
+                      <span className="qty-stepper">
+                        <button type="button" aria-label={`Bớt ${l.name}`} disabled={locked} onClick={() => setDialog({ kind: 'void', line: l, qty: 1 })}>
+                          −
+                        </button>
+                        <span>{l.qty}</span>
+                        <button type="button" aria-label={`Thêm ${l.name}`} disabled={locked} onClick={() => setDrafts(prev => [...prev, { key: draftKey(), state: { ...pickerFor(l), qty: 1 } }])}>
+                          +
+                        </button>
+                      </span>
+                    </div>
+                  </li>
+                )
+              })}
+              {quotedDrafts.map(({ d, item, q }) => (
+                <li key={d.key} className={'detail-line is-draft' + (q?.canAdd ? '' : ' is-bad')}>
+                  <div className="detail-line-main">
+                    <b className="detail-name">{item?.name ?? 'Món đã xoá'}</b>
+                    {item && <span>{describeLine(menu, item, d.state)}</span>}
+                    {q && !q.canAdd && <span className="field-error">{q.issues.find(i => i.level === 'error')?.message}</span>}
+                    <span className="badge badge-draft">Chưa lưu</span>
+                  </div>
+                  <div className="detail-line-side">
+                    <b>{q?.total != null ? vnd(q.total) : '—'}</b>
+                    <span className="qty-stepper">
+                      <button type="button" aria-label="Bớt" onClick={() => setDraftQty(d.key, d.state.qty - 1)}>
+                        −
+                      </button>
+                      <span>{d.state.qty}</span>
+                      <button type="button" aria-label="Thêm" onClick={() => setDraftQty(d.key, d.state.qty + 1)}>
+                        +
+                      </button>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="detail-sum-row">
+              <span>💰 Tiền hàng</span>
+              <span>{vnd(bill.subtotal + draftTotal)}</span>
+            </div>
+            {bill.serviceCharge > 0 && (
+              <div className="detail-sum-row">
+                <span>🧾 Phí phục vụ</span>
+                <span>{vnd(bill.serviceCharge)}</span>
+              </div>
+            )}
+            <div className="detail-sum-row">
+              <span>🏷️ Thuế VAT{vatRates.length ? ` (${vatRates.map(r => r + '%').join(', ')})` : ''}</span>
+              <span className="muted">{bill.vatAdded > 0 ? vnd(bill.vatAdded) : 'Giá đã bao gồm thuế'}</span>
+            </div>
+            {waits.length > 0 && <p className="muted small wait-line">Bếp đang chờ: {waits.map(w => `${w.s.name} ~${w.m} phút`).join(' · ')}</p>}
+            <button type="button" className="link" onClick={() => setTab('sent')}>
+              Xem bếp làm tới đâu (theo lượt) ›
             </button>
-          )}
+          </section>
+        )}
+
+        <div hidden={tab !== 'menu'}>
           {waits.length > 0 && <p className="muted small wait-line">Đang chờ: {waits.map(w => `${w.s.name} ~${w.m} phút`).join(' · ')}</p>}
           {locked ? (
             <p className="warn">Đơn đang thanh toán: chưa thêm món được.</p>
           ) : (
-            <OrderScreen
-              menu={menu}
-              now={now}
-              storageKey={storageKey}
-              onSend={send}
-              onCartChange={setCartCount}
-              footExtra={
-                <div className="send-extra">
-                  <div className="chip-row">
-                    <button type="button" className={'chip chip-sm chip-rush' + (rush ? ' is-on' : '')} aria-pressed={!!rush} onClick={() => setRush(rush ? null : RUSH_REASONS[0])}>
-                      GẤP
-                    </button>
-                    {rush &&
-                      RUSH_REASONS.map(r => (
-                        <button key={r} type="button" className={'chip chip-sm' + (rush === r ? ' is-on' : '')} onClick={() => setRush(r)}>
-                          {r}
-                        </button>
-                      ))}
-                  </div>
-                  {order.tables.length > 1 && (
-                    <label className="field">
-                      <span className="field-label">Ra bàn</span>
-                      <select value={delivery} onChange={e => setDelivery(e.target.value)}>
-                        <option value="">Bàn chính ({tableName(floor, order.tableId)})</option>
-                        {order.tables
-                          .filter(t => t.tableId !== order.tableId)
-                          .map(t => (
-                            <option key={t.tableId} value={t.tableId}>
-                              Bàn {tableName(floor, t.tableId)}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  )}
-                </div>
-              }
-            />
+            <OrderScreen menu={menu} now={now} storageKey={storageKey} cart={cart} onSend={send} onReview={() => setTab('detail')} footExtra={sendExtra} />
           )}
         </div>
 
@@ -337,6 +436,112 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         )}
       </main>
 
+      {tab === 'detail' && !locked && (
+        <footer className="detail-foot">
+          {drafts.length > 0 && sendExtra}
+          <div className="detail-total">
+            <span>
+              SL: <b>{qtySum}</b>
+            </span>
+            <span>
+              TỔNG: <b>{vnd(bill.total + draftTotal)}</b>
+            </span>
+          </div>
+          {cashier && (
+            <div className="detail-links">
+              <button type="button" onClick={pay} disabled={!live.length || drafts.length > 0}>
+                Khuyến mại
+              </button>
+              <button type="button" onClick={pay} disabled={!live.length || drafts.length > 0}>
+                Chiết khấu
+              </button>
+              <button type="button" onClick={() => setDialog({ kind: 'tax' })}>
+                Thuế & Phí
+              </button>
+            </div>
+          )}
+          <div className="detail-actions">
+            <button type="button" className="btn btn-add" onClick={() => setTab('menu')}>
+              ⊕ Thêm
+            </button>
+            <button type="button" className={'btn btn-save' + (drafts.length ? ' is-dirty' : '')} disabled={!drafts.length || saving || draftBlocked} onClick={save}>
+              {saving ? 'Đang lưu…' : drafts.length ? (draftBlocked ? 'Món cần sửa' : 'Lưu') : 'Đã lưu'}
+            </button>
+            {cashier ? (
+              <button type="button" className="btn btn-primary btn-pay" disabled={!live.length || drafts.length > 0} title={drafts.length ? 'Lưu món mới trước khi thanh toán' : undefined} onClick={pay}>
+                Thanh toán
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary btn-pay"
+                disabled={!live.length || drafts.length > 0}
+                onClick={() => act(repo.requestBill(order.id), () => props.onInfo('Đã báo thu ngân: bàn chờ thanh toán'))}
+              >
+                {order.billRequestedAt ? 'Đã báo tính tiền' : 'Báo tính tiền'}
+              </button>
+            )}
+          </div>
+        </footer>
+      )}
+      {dialog?.kind === 'line' &&
+        (() => {
+          const l = dialog.line
+          const pendingFix = notices.some(n => n.lineId === l.id && n.kind === 'modify' && n.status === 'pending')
+          return (
+            <Sheet title={`${l.qty} × ${l.name}${l.variantName ? ' – ' + l.variantName : ''}`} subtitle={`${LINE_STATUS_LABEL[l.status]} · gửi ${clock(l.sentAt)} · ${l.sentBy}`} onClose={() => setDialog(null)}>
+              <div className="action-grid">
+                {l.status === 'ready' && (
+                  <button type="button" className="btn btn-primary" onClick={() => act(repo.setLineStatus([l.id], 'served'))}>
+                    Đã bưng
+                  </button>
+                )}
+                {isUnfinished(l) && !pendingFix && (
+                  <button type="button" className="btn" disabled={locked} onClick={() => setDialog({ kind: 'modify', line: l })}>
+                    Sửa món
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={locked}
+                  onClick={() => {
+                    setDrafts(prev => [...prev, { key: draftKey(), state: { ...pickerFor(l), qty: 1 } }])
+                    setDialog(null)
+                  }}
+                >
+                  Gọi thêm 1 phần
+                </button>
+                <button type="button" className="btn btn-danger" disabled={locked} onClick={() => setDialog({ kind: 'void', line: l })}>
+                  Huỷ món
+                </button>
+              </div>
+            </Sheet>
+          )
+        })()}
+      {dialog?.kind === 'tax' && (
+        <Sheet title="Thuế & Phí" onClose={() => setDialog(null)}>
+          <ul className="rows">
+            {bill.vat.map(v => (
+              <li key={`${v.vatRate}-${String(v.priceIncludesVat)}`} className="detail-sum-row">
+                <span>
+                  VAT {v.vatRate}% {v.priceIncludesVat ? '(đã gồm trong giá)' : '(cộng thêm)'}
+                </span>
+                <span>{vnd(v.vat)}</span>
+              </li>
+            ))}
+            <li className="detail-sum-row">
+              <span>Phí phục vụ</span>
+              <span>{vnd(bill.serviceCharge)}</span>
+            </li>
+            <li className="detail-sum-row">
+              <b>Tổng thuế VAT</b>
+              <b>{vnd(bill.vatTotal)}</b>
+            </li>
+          </ul>
+          <p className="muted small">Thuế suất theo nhóm món trong Thực đơn. Chiết khấu và khuyến mại nhập ở màn Thanh toán.</p>
+        </Sheet>
+      )}
       {locked && cashier && (
         <div className="save-bar pay-bar">
           <button type="button" className="btn" onClick={() => repo.cancelPayment(order.id).catch(fail)}>
@@ -418,6 +623,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         <VoidSheet
           line={dialog.line}
           needsManager={voidNeedsManager(dialog.line, floor.settings) && !isManager(role)}
+          initialQty={dialog.qty}
           onClose={() => setDialog(null)}
           onVoid={inp => act(repo.voidLine(dialog.line.id, inp))}
         />
@@ -491,11 +697,11 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         />
       )}
       {dialog?.kind === 'leave' && (
-        <Sheet title="Còn món chưa gửi bếp" onClose={() => setDialog(null)}>
-          <p>{cartCount} món đang chọn chưa gửi bếp.</p>
+        <Sheet title="Còn món chưa lưu" onClose={() => setDialog(null)}>
+          <p>{cartCount} món mới chưa lưu (chưa gửi bếp).</p>
           <div className="action-grid">
-            <button type="button" className="btn btn-primary" onClick={() => (setDialog(null), setTab('menu'))}>
-              Ở lại để gửi bếp
+            <button type="button" className="btn btn-primary" onClick={() => (setDialog(null), setTab('detail'))}>
+              Ở lại để lưu
             </button>
             <button type="button" className="btn" onClick={() => go('ban')}>
               Giữ lại để gửi sau

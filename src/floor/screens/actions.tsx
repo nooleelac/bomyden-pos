@@ -10,10 +10,10 @@ import type { FloorRepo } from '../repo'
 import { TABLE_STATE_LABEL, VOID_REASONS, type FloorState, type Line, type Order } from '../types'
 import { GuestPicker, Sheet } from './Sheet'
 
-export function VoidSheet(props: { line: Line; needsManager: boolean; onClose: () => void; onVoid: (inp: VoidInput) => void }) {
+export function VoidSheet(props: { line: Line; needsManager: boolean; initialQty?: number; onClose: () => void; onVoid: (inp: VoidInput) => void }) {
   const l = props.line
   const { requestApproval } = useAuth()
-  const [qty, setQty] = useState(l.qty)
+  const [qty, setQty] = useState(Math.min(l.qty, props.initialQty ?? l.qty))
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
   const ok = reason && (reason !== 'Khác' || note.trim())

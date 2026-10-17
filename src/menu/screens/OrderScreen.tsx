@@ -7,21 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { describeLine, initialState, itemBlock, liveVariants, priceLabel, quoteLine, searchItems, toSendLine, vnd, type PickerState } from '../picker'
 import { isSoldOut, type Menu, type MenuItem } from '../types'
 import { ItemPicker } from './ItemPicker'
-
-interface Draft {
-  key: number
-  state: PickerState
-}
-
-function loadCart(key: string | undefined): Draft[] {
-  if (!key) return []
-  try {
-    const v = JSON.parse(localStorage.getItem(key) ?? '[]')
-    return Array.isArray(v) ? (v as Draft[]) : []
-  } catch {
-    return []
-  }
-}
+import { draftKey, useCart, type Cart } from '../cart'
 
 export function OrderScreen(props: {
   menu: Menu
@@ -34,24 +20,20 @@ export function OrderScreen(props: {
   footExtra?: ReactNode
   /** Cart size changes (to warn before leaving with unsent lines). */
   onCartChange?: (n: number) => void
+  /** The cart, when the screen around it shows it too (Chi tiết hoá đơn); otherwise the screen keeps its own. */
+  cart?: Cart
+  /** Tapping Thành tiền opens this (the order's detail) instead of the list below the menu. */
+  onReview?: () => void
 }) {
   const { menu, now, onSend, storageKey, onCartChange } = props
   const [query, setQuery] = useState('')
   const [cat, setCat] = useState<string | null>(null)
   const [open, setOpen] = useState<{ item: MenuItem; state: PickerState; key?: number } | null>(null)
-  const [lines, setLines] = useState<Draft[]>(() => loadCart(storageKey))
+  const own = useCart(props.cart ? undefined : storageKey)
+  const [lines, setLines] = props.cart ?? own
   const [sent, setSent] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
-  useEffect(() => {
-    if (!storageKey) return
-    try {
-      if (lines.length) localStorage.setItem(storageKey, JSON.stringify(lines))
-      else localStorage.removeItem(storageKey)
-    } catch {
-      /* storage blocked: the cart still lives in memory */
-    }
-  }, [lines, storageKey])
   useEffect(() => onCartChange?.(lines.length), [lines.length, onCartChange])
 
   const tops = menu.categories.filter(c => !c.parentId && c.visible).sort((a, b) => a.sort - b.sort)
@@ -67,7 +49,7 @@ export function OrderScreen(props: {
   }
   const addLine = (state: PickerState, key?: number) => {
     setSent(null)
-    setLines(prev => (key != null ? prev.map(l => (l.key === key ? { key, state } : l)) : [...prev, { key: Date.now() + Math.random(), state }]))
+    setLines(prev => (key != null ? prev.map(l => (l.key === key ? { key, state } : l)) : [...prev, { key: draftKey(), state }]))
     setOpen(null)
   }
 
@@ -212,13 +194,13 @@ export function OrderScreen(props: {
           </div>
         )}
         <div className="cart-foot">
-          <button type="button" className="cart-sum" disabled={!lines.length} onClick={() => setCartOpen(o => !o)} aria-expanded={cartOpen}>
+          <button type="button" className="cart-sum" disabled={!lines.length && !props.onReview} onClick={() => (props.onReview ? props.onReview() : setCartOpen(o => !o))} aria-expanded={cartOpen}>
             <span className="cart-total">
               Thành tiền: <b>{vnd(total)}</b>
             </span>
             <span className="muted small">
               Mặt hàng: {count}
-              {lines.length > 0 && (cartOpen ? ' · Thu gọn ▾' : ' · Xem / sửa ▴')}
+              {props.onReview ? ' · Xem đơn ›' : lines.length > 0 && (cartOpen ? ' · Thu gọn ▾' : ' · Xem / sửa ▴')}
             </span>
           </button>
           <button type="button" className="btn btn-primary btn-send" disabled={!lines.length || blocked > 0 || sending} onClick={send}>

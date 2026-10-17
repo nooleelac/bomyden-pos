@@ -16,10 +16,13 @@ import type { FloorState } from '../floor/types'
 /** Top bar + bottom tab bar + drawer. */
 export function TopBar() {
   const [open, setOpen] = useState(false)
-  const path = useRoute().join('/')
+  const route = useRoute()
+  const path = route.join('/')
   const repos = useContext(ReposContext)
   // the drawer closes on any navigation
   useEffect(() => setOpen(false), [path])
+  // a table's order screen has its own header (← Chi tiết hoá đơn ⋮) and bottom bar, like Sapo
+  if (route[0] === 'ban' && route[1] === 'don') return null
   return (
     <>
       <header className="topbar">

@@ -220,3 +220,48 @@
   border: 0; border-radius: var(--radius); background: var(--accent-soft); color: var(--text); font-size: 14px; text-align: left;
 }
 .ordered-strip-link { flex: none; color: var(--accent); font-weight: 700; }
+
+/* order screen header (Sapo style): ← title ⋮, then the kind of order and the table */
+.detail-head { position: sticky; top: 0; z-index: 8; display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; min-height: 56px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.detail-head h1 { margin: 0; text-align: center; font-size: 19px; color: var(--slate); }
+.detail-back, .detail-more { width: 48px; height: 48px; border: 0; background: none; font-size: 24px; color: var(--slate); border-radius: 10px; }
+.detail-back:hover, .detail-more:hover { background: var(--accent-soft); }
+.detail-strip { display: grid; grid-template-columns: 1fr 1fr; align-items: center; background: var(--surface); border-bottom: 6px solid var(--bg); }
+.detail-strip > span { padding: 12px 16px; font-size: 17px; }
+.detail-kind { color: var(--accent); font-weight: 600; border-right: 1px solid var(--line); }
+.detail-table { color: var(--slate); font-weight: 600; }
+.order-view .order-head { border-bottom: 6px solid var(--bg); }
+.order-view.view-menu .cat-rail { top: 64px; }
+
+/* Chi tiết hoá đơn: dishes with − qty +, sums, fixed bottom: SL/TỔNG, Khuyến mại/Chiết khấu/Thuế & Phí, Thêm/Lưu/Thanh toán */
+.bill-detail { background: var(--surface); margin: 0 -10px; padding: 0 16px 8px; }
+.detail-lines { list-style: none; margin: 0; padding: 0; }
+.detail-line { display: flex; gap: 10px; justify-content: space-between; padding: 14px 0; border-bottom: 1px dashed var(--line); }
+.detail-line.is-draft { background: linear-gradient(90deg, var(--accent-soft), transparent 70%); margin: 0 -16px; padding: 14px 16px; }
+.detail-line.is-bad { background: var(--danger-bg); }
+.detail-line-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 0; border: 0; background: none; text-align: left; color: var(--slate); font-size: 15px; }
+.detail-name { color: var(--text); font-size: 16px; text-transform: uppercase; }
+.detail-line-main .badge { margin-top: 2px; }
+.detail-line-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.detail-line-side > b { font-size: 16px; color: var(--text); }
+.qty-stepper { display: inline-flex; align-items: center; gap: 14px; }
+.qty-stepper > span { min-width: 20px; text-align: center; font-size: 17px; }
+.qty-stepper button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent); font-size: 24px; line-height: 1; }
+.qty-stepper button:first-child { background: #eef1f6; color: var(--muted); }
+.qty-stepper button:disabled { opacity: .35; }
+.detail-sum-row { display: flex; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px dashed var(--line); color: var(--slate); font-size: 16px; }
+.order-view.view-detail main { padding-bottom: 240px; }
+.detail-foot { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: var(--surface); box-shadow: 0 -4px 16px rgba(42, 58, 92, .1); padding-bottom: env(safe-area-inset-bottom); }
+.detail-foot .send-extra { padding: 8px 16px 0; margin: 0; }
+.detail-total { display: flex; justify-content: space-between; padding: 14px 16px; background: var(--accent-soft); color: var(--slate); font-size: 17px; font-weight: 700; }
+.detail-total b { color: var(--text); }
+.detail-links { display: grid; grid-template-columns: repeat(3, 1fr); }
+.detail-links button { min-height: 50px; border: 0; background: none; color: var(--accent); font-size: 16px; }
+.detail-links button + button { border-left: 1px solid var(--line); }
+.detail-links button:disabled { opacity: .4; }
+.detail-actions { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 8px; padding: 8px; }
+.detail-actions .btn { min-height: 54px; font-size: 17px; border-radius: 10px; }
+.btn-add { background: #19c37d; border-color: #19c37d; color: #fff !important; }
+.btn-save { background: var(--surface); color: var(--muted) !important; }
+.btn-save.is-dirty { border: 2px solid var(--accent); color: var(--accent) !important; }
+.btn-save:disabled:not(.is-dirty) { opacity: 1; }
