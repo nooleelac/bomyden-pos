@@ -4,7 +4,7 @@ import * as E from '../floor/engine'
 import { createMemoryFloorRepo } from '../floor/repo'
 import { seedFloor } from '../floor/seed'
 import type { Actor, SendLineInput } from '../floor/types'
-import { canOpen, homeRoute, menuTabsFor, navFor, screenOf } from './guards'
+import { canOpen, homeRoute, menuTabsFor, navFor, screenOf, settingsFor } from './guards'
 import { isIdle, shouldTouch } from './idle'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './memoryRepo'
 import { attemptPin, pinProblem } from './pin'
@@ -39,8 +39,13 @@ describe('route guards by role', () => {
   it('manager and owner open everything', () => {
     for (const r of ['manager', 'owner'] as Role[]) expect(allowed(r)).toEqual(Object.keys(routes))
     expect(menuTabsFor('owner')).toContain('items')
-    expect(navFor('manager').map(l => l.label)).toContain('Nhân viên')
-    expect(navFor('waiter').map(l => l.label)).toEqual(['Sơ đồ bàn', 'Thực đơn'])
+    expect(navFor('manager').map(l => l.label)).toEqual(['Sơ đồ bàn', 'Bếp', 'Thu ngân', 'Cài đặt'])
+    expect(settingsFor('manager').map(l => l.label)).toEqual(['Ca', 'Thực đơn', 'Bàn', 'Nhân viên'])
+    expect(navFor('waiter').map(l => l.label)).toEqual(['Sơ đồ bàn', 'Cài đặt'])
+    expect(settingsFor('waiter').map(l => l.label)).toEqual(['Hết món'])
+    expect(settingsFor('cashier').map(l => l.label)).toEqual(['Ca', 'Hết món', 'Bàn'])
+    expect(settingsFor('kitchen')).toEqual([])
+    expect(screenOf(['cai-dat'])).toBe('settings')
   })
   it('nobody signed in opens nothing; unknown routes are the order menu', () => {
     expect(canOpen(null, ['ban'])).toBe(false)

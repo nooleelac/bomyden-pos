@@ -2,7 +2,7 @@
 // Routes (hash): #/order  #/categories  #/items  #/items/<id>  #/groups  #/soldout
 
 import { useCallback, useEffect, useState } from 'react'
-import { NavLinks, UserChip } from '../auth/chrome'
+import { NavLinks, SettingsBack, UserChip } from '../auth/chrome'
 import { menuTabsFor } from '../auth/guards'
 import type { Role } from '../floor/types'
 import '../floor/floor.css'
@@ -83,6 +83,7 @@ export function MenuApp(props: { repo: MenuRepo; role: Role }) {
         <NavLinks />
         <UserChip />
       </header>
+      <SettingsBack />
       {menu.sample && <div className="sample-banner">Dữ liệu mẫu: tên món là ví dụ, giá chỉ là ví dụ, chưa phải giá thật của quán.</div>}
       <nav className="tabs" aria-label="Thực đơn">
         {tabs.map(t => (

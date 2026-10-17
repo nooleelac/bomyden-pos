@@ -11,6 +11,7 @@ import { session, useRoute } from './floor/hooks'
 import { createMemoryFloorRepo, type FloorRepo } from './floor/repo'
 import { sampleEvening } from './floor/seed'
 import { MenuApp } from './menu/MenuApp'
+import { SettingsApp } from './settings/SettingsApp'
 import { createMemoryMenuRepo, type MenuRepo } from './menu/repo'
 import { seedMenu } from './menu/seed'
 
@@ -70,6 +71,7 @@ function Screens(props: { repos: Repos }) {
   const top = route[0] ?? ''
   if (top === 'bep') return <KitchenApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === 'nhan-vien') return <StaffApp />
+  if (top === 'cai-dat') return <SettingsApp />
   if (top === 'thu-ngan' || top === 'ca') return <CashierApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === '' || top === 'ban') return <FloorApp floorRepo={repos.floor} menuRepo={repos.menu} />
   return <MenuApp repo={repos.menu} role={me.role} />

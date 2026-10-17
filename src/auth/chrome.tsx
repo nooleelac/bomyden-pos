@@ -1,7 +1,8 @@
-// Top-bar pieces shared by every screen: links the signed-in role may open, and who is signed in (Đổi người).
+// Top-bar pieces shared by every screen: the three work screens plus Cài đặt, who is signed in (Đổi người), and the
+// "← Cài đặt" strip on screens opened from Cài đặt.
 
 import { useAuth } from './context'
-import { navFor, screenOf } from './guards'
+import { SCREEN_LABEL, isSettingsScreen, navFor, screenOf } from './guards'
 import { ROLE_LABEL } from './types'
 import { useRoute } from '../floor/hooks'
 
@@ -9,14 +10,29 @@ export function NavLinks() {
   const { session } = useAuth()
   const here = screenOf(useRoute())
   const links = navFor(session.role)
+  const current = isSettingsScreen(here) ? 'settings' : here
   return (
     <nav className="top-links" aria-label="Màn hình">
       {links.map(l => (
-        <a key={l.href} href={l.href} aria-current={l.screen === here || (here === 'menu-admin' && l.screen === 'menu-order') || (here === 'menu-soldout' && l.screen === 'menu-order') ? 'page' : undefined}>
-          {l.label}
+        <a key={l.href} href={l.href} title={l.label} aria-current={l.screen === current ? 'page' : undefined}>
+          <span aria-hidden>{l.icon}</span>
+          <span className="top-link-label">{l.label}</span>
         </a>
       ))}
     </nav>
+  )
+}
+
+/** Below the top bar on Ca, Thực đơn, Bàn and Nhân viên: the way back to the Cài đặt cards. */
+export function SettingsBack() {
+  const here = screenOf(useRoute())
+  if (!isSettingsScreen(here) || here === 'settings') return null
+  return (
+    <div className="settings-back">
+      <a href="#/cai-dat">← Cài đặt</a>
+      <span className="muted">/</span>
+      <b>{here === 'menu-admin' ? 'Thực đơn' : SCREEN_LABEL[here]}</b>
+    </div>
   )
 }
 

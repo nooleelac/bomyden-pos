@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Sheet } from '../floor/screens/Sheet'
 import { errText, useRoute } from '../floor/hooks'
 import '../floor/floor.css'
-import { NavLinks, UserChip } from './chrome'
+import { NavLinks, SettingsBack, UserChip } from './chrome'
 import { useAuth } from './context'
 import { isManager } from './guards'
 import { pinProblem } from './pin'
@@ -45,6 +45,7 @@ export function StaffApp() {
         <NavLinks />
         <UserChip />
       </header>
+      <SettingsBack />
       {auth.repo.source === 'sample' && <div className="sample-banner">Nhân viên mẫu trên trình duyệt này. Đổi tên và đặt PIN thật trước khi dùng ở quán.</div>}
       <nav className="tabs" aria-label="Nhân viên">
         {TABS.map(t => (
