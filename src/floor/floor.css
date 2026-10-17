@@ -213,3 +213,10 @@
 @keyframes bell-in { from { transform: translateY(-8px); opacity: 0; } }
 .drawer-list a.drawer-section { margin: 8px 0 0; padding-top: 14px; border-top: 1px dashed var(--line); color: var(--slate); font-weight: 800; }
 .drawer-list a.drawer-sub { padding-left: 36px; font-size: 15px; }
+
+/* Gọi thêm: what the table already ordered, one tap to Đã gửi */
+.ordered-strip {
+  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0 0; padding: 10px 12px;
+  border: 0; border-radius: var(--radius); background: var(--accent-soft); color: var(--text); font-size: 14px; text-align: left;
+}
+.ordered-strip-link { flex: none; color: var(--accent); font-weight: 700; }

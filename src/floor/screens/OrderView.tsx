@@ -31,7 +31,8 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
   const { floor, menu, repo, now, role } = props
   const order = floor.orders.find(o => o.id === props.orderId)
   const lines = useMemo(() => floor.lines.filter(l => l.orderId === props.orderId && !l.replacedBy), [floor.lines, props.orderId])
-  const [tab, setTab] = useState<'menu' | 'sent'>(() => (lines.length ? 'sent' : 'menu'))
+  // a table opens on Gọi món even when it already ordered (gọi thêm is the common case); Đã gửi is one tap away
+  const [tab, setTab] = useState<'menu' | 'sent'>(() => (order?.payingAt ? 'sent' : 'menu'))
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [selecting, setSelecting] = useState<null | 'moveItems' | 'split'>(null)
   const [picked, setPicked] = useState<Record<string, number>>({})
@@ -174,7 +175,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
 
       <nav className="tabs order-tabs" aria-label="Đơn">
         <button type="button" className={'tab' + (tab === 'menu' ? ' is-on' : '')} onClick={() => setTab('menu')}>
-          Gọi món{cartCount ? ` (${cartCount} chưa gửi)` : ''}
+          {live.length ? 'Gọi thêm' : 'Gọi món'}{cartCount ? ` (${cartCount} chưa gửi)` : ''}
         </button>
         <button type="button" className={'tab' + (tab === 'sent' ? ' is-on' : '')} onClick={() => setTab('sent')}>
           Đã gửi ({live.reduce((n, l) => n + l.qty, 0)})
@@ -186,6 +187,14 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
 
       <main>
         <div hidden={tab !== 'menu'}>
+          {live.length > 0 && (
+            <button type="button" className="ordered-strip" onClick={() => setTab('sent')}>
+              <span>
+                🧾 Đã gọi <b>{live.reduce((n, l) => n + l.qty, 0)} món</b> · {vnd(total)}
+              </span>
+              <span className="ordered-strip-link">Xem món đã gọi ›</span>
+            </button>
+          )}
           {waits.length > 0 && <p className="muted small wait-line">Đang chờ: {waits.map(w => `${w.s.name} ~${w.m} phút`).join(' · ')}</p>}
           {locked ? (
             <p className="warn">Đơn đang thanh toán: chưa thêm món được.</p>
