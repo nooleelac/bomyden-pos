@@ -34,13 +34,13 @@ export function DeviceSetup(props: { repo: AuthRepo; onDone: (d: Device) => void
           {props.disabled ? (
             <>
               <h1>Máy “{props.disabled.name}” đã bị khoá</h1>
-              <p className="muted">Quản lý mở lại máy này ở Nhân viên → Máy trên một máy khác.</p>
+              <p className="muted">Quản lý mở lại máy này ở Cài đặt → Nhân viên → Máy trên một máy khác.</p>
             </>
           ) : (
             <>
               <h1>Đăng ký máy này</h1>
               <p className="muted">
-                Làm một lần cho mỗi máy tính bảng, máy POS hoặc màn bếp. Quản lý tạo mã ở <b>Nhân viên → Máy → Thêm máy</b>, rồi nhập mã ở đây.
+                Làm một lần cho mỗi máy tính bảng, máy POS hoặc màn bếp. Quản lý tạo mã ở <b>Cài đặt → Nhân viên → Máy → Thêm máy</b>, rồi nhập mã ở đây.
               </p>
               <label className="field">
                 <span className="field-label">Mã đăng ký máy</span>
