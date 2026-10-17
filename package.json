@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "npm run build && wrangler deploy --name wandering-sunset-5e4e --assets ./dist --compatibility-date 2026-10-01"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -29,6 +30,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "wrangler": "^4.151.1"
   }
 }
