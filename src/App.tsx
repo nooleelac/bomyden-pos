@@ -9,13 +9,14 @@ import type { AuthRepo } from './auth/repo'
 import { staffFetch } from './auth/token'
 import { CashierApp } from './cashier/CashierApp'
 import { FloorApp } from './floor/FloorApp'
-import { ReposContext, session, useRoute } from './floor/hooks'
+import { peekSource, ReposContext, session, useRoute } from './floor/hooks'
 import { createMemoryFloorRepo, type FloorRepo } from './floor/repo'
 import { sampleEvening } from './floor/seed'
 import { MenuApp } from './menu/MenuApp'
 import { SettingsApp } from './settings/SettingsApp'
 import { createMemoryMenuRepo, type MenuRepo } from './menu/repo'
 import { seedMenu } from './menu/seed'
+import type { Menu } from './menu/types'
 
 // Sample data by default. VITE_MENU_SOURCE=supabase / VITE_FLOOR_SOURCE=supabase / VITE_AUTH_SOURCE=supabase (plus the
 // Supabase URL and key) use the database; supabase-js is then loaded on demand so the sample build stays small.
@@ -49,7 +50,7 @@ async function connect(): Promise<Repos> {
   const sampleAuth = authFromDb ? null : createMemoryAuthRepo({ sync: { storageKey: 'bmd-auth-v1', sessionKey: 'bmd-auth-session', channel: 'bmd-auth' } })
   const auth = sampleAuth ?? (await import('./auth/supabaseRepo')).createSupabaseAuthRepo(db!)
   const menu = menuFromDb ? (await import('./menu/supabaseRepo')).createSupabaseMenuRepo(db!) : createMemoryMenuRepo()
-  const floor = floorFromDb ? (await import('./floor/supabaseRepo')).createSupabaseFloorRepo(db!) : sampleFloorRepo(menu, sampleAuth)
+  const floor = floorFromDb ? (await import('./floor/supabaseRepo')).createSupabaseFloorRepo(db!, { menu: () => peekSource<Menu>(menu), actor: () => session.actor }) : sampleFloorRepo(menu, sampleAuth)
   return { menu, floor, auth }
 }
 

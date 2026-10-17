@@ -12,8 +12,11 @@ import type { Actor, Area, FloorState, LineStatus, SendLineInput, Table } from '
 export interface FloorRepo {
   readonly source: 'sample' | 'supabase'
   load(): Promise<FloorState>
-  /** Called whenever any device changes orders, lines or notices. Returns unsubscribe. */
-  subscribe(onChange: () => void): () => void
+  /**
+   * Called whenever any device changes orders, lines or notices. Returns unsubscribe. With a state, this device's
+   * own change is shown before the server confirms it (Supabase); without one, load again.
+   */
+  subscribe(onChange: (state?: FloorState) => void): () => void
   openTable(inp: E.OpenTableInput): Promise<string>
   addSharedOrder(inp: E.SharedOrderInput): Promise<string>
   openTakeaway(inp: { customerName?: string }): Promise<string>

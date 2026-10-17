@@ -100,10 +100,18 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     source: 'supabase',
     load,
     subscribe(onChange) {
+      let t: ReturnType<typeof setTimeout> | null = null
+      const fire = () => {
+        if (t) clearTimeout(t)
+        t = setTimeout(() => onChange(), 80) // one reload for a burst of row changes (a saved dish writes several tables)
+      }
       const ch = db.channel(`menu-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
-      for (const table of MENU_TABLES) ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange())
+      for (const table of MENU_TABLES) ch.on('postgres_changes', { event: '*', schema: 'public', table }, fire)
       ch.subscribe()
-      return () => void db.removeChannel(ch)
+      return () => {
+        if (t) clearTimeout(t)
+        void db.removeChannel(ch)
+      }
     },
     async saveCategory(c) {
       await ok(db.from('menu_categories').upsert(categoryRow(c)))

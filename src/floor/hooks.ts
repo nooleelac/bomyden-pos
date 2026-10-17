@@ -16,7 +16,7 @@ export function useLive(floorRepo: FloorRepo, menuRepo: MenuRepo, onError: (m: s
 // change on another device is loaded once, not once per reader.
 interface Source<T> {
   load(): Promise<T>
-  subscribe(onChange: () => void): () => void
+  subscribe(onChange: (value?: T) => void): () => void
 }
 interface Store {
   value: unknown
@@ -24,7 +24,7 @@ interface Store {
   readers: Set<() => void>
   errors: Set<(e: unknown) => void>
   unsubscribe: (() => void) | null
-  reload: () => void
+  reload: (value?: unknown) => void
 }
 const stores = new WeakMap<object, Store>()
 function storeOf(src: Source<unknown>): Store {
@@ -36,8 +36,14 @@ function storeOf(src: Source<unknown>): Store {
       readers: new Set(),
       errors: new Set(),
       unsubscribe: null,
-      reload: () => {
+      // a value from the repo (this device's own change) is shown as is; anything else loads again
+      reload: (value?: unknown) => {
         const n = ++s.seq
+        if (value !== undefined) {
+          s.value = value
+          s.readers.forEach(f => f())
+          return
+        }
         src.load().then(
           v => {
             if (n !== s.seq) return // a newer load is on its way
@@ -63,8 +69,11 @@ export function useSource<T>(src: Source<T>, onError?: (m: string) => void): T |
     const err = (e: unknown) => onError?.(errText(e))
     st.readers.add(read)
     st.errors.add(err)
-    if (!st.unsubscribe) st.unsubscribe = src.subscribe(st.reload)
-    st.reload()
+    // the first reader subscribes and loads; later ones (the bell next to a screen) share that copy
+    if (!st.unsubscribe) {
+      st.unsubscribe = src.subscribe(st.reload)
+      st.reload()
+    } else if (st.value != null) read()
     return () => {
       st.readers.delete(read)
       st.errors.delete(err)
@@ -75,6 +84,11 @@ export function useSource<T>(src: Source<T>, onError?: (m: string) => void): T |
     }
   }, [st, src, onError])
   return value
+}
+
+/** The current copy of a repo's live value, or null before the first load (no reader, no load). */
+export function peekSource<T>(src: object): T | null {
+  return (stores.get(src)?.value as T | null | undefined) ?? null
 }
 
 /** The app's repos, for parts of the frame (the bell) that sit outside a screen. */
