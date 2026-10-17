@@ -6,6 +6,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { MenuRepo } from './repo'
 import type { Category, Menu, MenuItem, ModifierGroup } from './types'
 
+// realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
+let channelNo = 0
+
 type Row = Record<string, unknown>
 
 const MENU_TABLES = [
@@ -97,7 +100,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     source: 'supabase',
     load,
     subscribe(onChange) {
-      const ch = db.channel('menu-changes')
+      const ch = db.channel(`menu-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
       for (const table of MENU_TABLES) ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange())
       ch.subscribe()
       return () => void db.removeChannel(ch)

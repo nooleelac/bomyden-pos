@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { AuthGate } from './auth/AuthGate'
 import { SwipeBack } from './auth/SwipeBack'
+import { ErrorBoundary } from './ErrorBoundary'
 import { useAuth } from './auth/context'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './auth/memoryRepo'
 import type { AuthRepo } from './auth/repo'
@@ -88,7 +89,9 @@ function App() {
     <AuthGate repo={repos.auth}>
       <ReposContext.Provider value={repos}>
         <Suspense fallback={<p style={{ padding: 16 }}>Đang tải…</p>}>
-          <Screens repos={repos} />
+          <ErrorBoundary>
+            <Screens repos={repos} />
+          </ErrorBoundary>
           <SwipeBack />
         </Suspense>
       </ReposContext.Provider>

@@ -12,6 +12,9 @@ import {
   type ApprovalResult, type AuditEntry, type AuthSettings, type Device, type Role, type RosterEntry, type Session, type SignInResult, type StaffRecord,
 } from './types'
 
+// realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
+let channelNo = 0
+
 type Row = Record<string, unknown>
 const SESSION_KEY = 'bmd-staff-session'
 
@@ -168,7 +171,7 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
       }))
     },
     subscribe(onChange) {
-      const ch = db.channel('staff-changes')
+      const ch = db.channel(`staff-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
       for (const table of ['staff', 'devices']) ch.on('postgres_changes', { event: '*', schema: 'public', table }, onChange)
       ch.subscribe()
       return () => void db.removeChannel(ch)

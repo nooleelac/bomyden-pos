@@ -11,6 +11,9 @@ import type { VatGroup } from '../lib/pricing'
 import type { FloorRepo } from './repo'
 import type { Actor, Bill, FloorState, Line, LineMod, LineStatus, Notice, Order, Role, Shift } from './types'
 
+// realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
+let channelNo = 0
+
 type Row = Record<string, unknown>
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>
 
@@ -171,7 +174,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient): FloorRepo & { whoAm
         if (t) clearTimeout(t)
         t = setTimeout(onChange, 150) // one reload for a burst of row changes
       }
-      const ch = db.channel('floor-changes')
+      const ch = db.channel(`floor-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
       for (const table of ['orders', 'order_items', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, fire)
       }
