@@ -6,12 +6,11 @@
 import { useRef, useState } from 'react'
 import { vnd } from '../../menu/picker'
 import { go, markQuickOpened } from '../hooks'
-import { areaTables, formatDuration, openOrdersAt, orderAmount, orderLabel, orderTitle, tableTile, type TableTile } from '../logic'
+import { areaTables, formatDuration, shortMinutes, openOrdersAt, orderAmount, orderLabel, orderTitle, tableTile, type TableTile } from '../logic'
 import type { FloorRepo } from '../repo'
 import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableState } from '../types'
 import { GuestPicker, Sheet } from './Sheet'
 
-type Filter = 'all' | 'free' | 'mine' | 'bill'
 const TAKEAWAY = 'takeaway'
 
 export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date; role: Role; me: string; online: boolean; onError: (m: string) => void }) {
@@ -24,7 +23,6 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
       return areas[0]?.id
     }
   })
-  const [filter, setFilter] = useState<Filter>('all')
   const [openFor, setOpenFor] = useState<string | null>(null)
   const [pickFor, setPickFor] = useState<TableTile | null>(null)
   const [sharedFor, setSharedFor] = useState<string | null>(null)
@@ -36,12 +34,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   const tiles = area ? areaTables(floor, area.id).map(t => tableTile(floor, t, now)) : []
   const allTiles = floor.tables.filter(t => t.active).map(t => tableTile(floor, t, now))
   const count = (ts: TableTile[], st: TableState) => ts.filter(t => t.state === st).length
-  const shown = tiles.filter(t =>
-    filter === 'all' ? true
-    : filter === 'free' ? t.state === 'free'
-    : filter === 'bill' ? t.state === 'bill' || t.state === 'paying'
-    : t.orders.some(o => o.openedBy === props.me),
-  )
+  const shown = tiles
   const takeaways = floor.orders.filter(o => o.kind === 'takeaway' && o.status === 'open').sort((a, b) => (a.takeawayNo ?? 0) - (b.takeawayNo ?? 0))
 
   // One tap on a free table opens it with its seat count as the guest count (editable on the order screen) and goes
@@ -86,8 +79,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
     : t.state === 'closed' ? 'Tạm đóng'
     : t.state === 'cleaning' ? 'Chạm: dọn xong'
     : t.state === 'paying' ? 'Đang thanh toán'
-    : t.state === 'bill' ? `Chờ TT · ${since(t.orders.map(o => o.billRequestedAt!).sort()[0])}`
-    : since(t.seatedSince!)
+    : shortMinutes(now.getTime() - new Date(t.seatedSince!).getTime())
 
   return (
     <div className="floor screen">
@@ -136,21 +128,6 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
               </ul>
             </section>
           ) : (
-            <>
-              <div className="chip-row filter-row" role="group" aria-label="Lọc bàn">
-                {(
-                  [
-                    ['all', 'Tất cả'],
-                    ['free', 'Bàn trống'],
-                    ['mine', 'Bàn của tôi'],
-                    ['bill', 'Chờ thanh toán'],
-                  ] as [Filter, string][]
-                ).map(([k, v]) => (
-                  <button key={k} type="button" className={'chip chip-sm' + (filter === k ? ' is-on' : '')} aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                    {v}
-                  </button>
-                ))}
-              </div>
               <ul className="table-grid">
                 {shown.map(t => (
                   <li key={t.table.id}>
@@ -165,30 +142,14 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
                         if (t.state === 'free' && props.online) setOpenFor(t.table.id)
                       }}
                     >
-                      <span className="tile-marks">
-                        {t.kitchenHeat && t.kitchenHeat !== 'ok' && <span className={`mark heat-${t.kitchenHeat}`} title="Món gửi bếp lâu chưa ra" />}
-                        {t.readyCount > 0 && (
-                          <span className="mark ready" title="Món xong chờ bưng">
-                            {t.readyCount}
-                          </span>
-                        )}
-                      </span>
                       <b className="tile-name">{t.table.name}</b>
                       <span className="tile-sub">{tileSub(t)}</span>
-                      {t.orders.length > 0 && (
-                        <span className="tile-info">
-                          {t.orders.length > 1 && <b>{t.orders.length} đơn · </b>}
-                          <span className={t.overSeats ? 'over' : ''}>{t.guests} khách</span>
-                          {seeAmounts && t.amount > 0 && <> · {vnd(t.amount)}</>}
-                        </span>
-                      )}
-                      {t.groupLabel && <span className="tile-group">{t.groupLabel}</span>}
+                      {seeAmounts && t.amount > 0 && <span className="tile-amount">{vnd(t.amount)}</span>}
                     </button>
                   </li>
                 ))}
                 {shown.length === 0 && <li className="empty">Không có bàn phù hợp</li>}
               </ul>
-            </>
           )}
         </div>
       </div>

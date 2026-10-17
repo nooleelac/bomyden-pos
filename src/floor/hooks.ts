@@ -1,30 +1,84 @@
 // Data hooks shared by the floor and kitchen screens: live state from the repos, a ticking clock, the hash route.
 
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, useEffect, useState } from 'react'
 import type { MenuRepo } from '../menu/repo'
 import type { Menu } from '../menu/types'
 import type { FloorRepo } from './repo'
 import type { Actor, FloorState } from './types'
 
 export function useLive(floorRepo: FloorRepo, menuRepo: MenuRepo, onError: (m: string) => void) {
-  const [floor, setFloor] = useState<FloorState | null>(null)
-  const [menu, setMenu] = useState<Menu | null>(null)
-  const reloadFloor = useCallback(() => {
-    floorRepo.load().then(setFloor, e => onError(errText(e)))
-  }, [floorRepo, onError])
-  const reloadMenu = useCallback(() => {
-    menuRepo.load().then(setMenu, e => onError(errText(e)))
-  }, [menuRepo, onError])
-  useEffect(() => {
-    reloadFloor()
-    return floorRepo.subscribe(reloadFloor)
-  }, [floorRepo, reloadFloor])
-  useEffect(() => {
-    reloadMenu()
-    return menuRepo.subscribe(reloadMenu)
-  }, [menuRepo, reloadMenu])
+  const floor = useSource<FloorState>(floorRepo, onError)
+  const menu = useSource<Menu>(menuRepo, onError)
   return { floor, menu }
 }
+
+// One live copy per repo, shared by every component that reads it (the screen and the notification bell), so a
+// change on another device is loaded once, not once per reader.
+interface Source<T> {
+  load(): Promise<T>
+  subscribe(onChange: () => void): () => void
+}
+interface Store {
+  value: unknown
+  seq: number
+  readers: Set<() => void>
+  errors: Set<(e: unknown) => void>
+  unsubscribe: (() => void) | null
+  reload: () => void
+}
+const stores = new WeakMap<object, Store>()
+function storeOf(src: Source<unknown>): Store {
+  let st = stores.get(src)
+  if (!st) {
+    const s: Store = {
+      value: null,
+      seq: 0,
+      readers: new Set(),
+      errors: new Set(),
+      unsubscribe: null,
+      reload: () => {
+        const n = ++s.seq
+        src.load().then(
+          v => {
+            if (n !== s.seq) return // a newer load is on its way
+            s.value = v
+            s.readers.forEach(f => f())
+          },
+          e => s.errors.forEach(f => f(e)),
+        )
+      },
+    }
+    stores.set(src, s)
+    st = s
+  }
+  return st
+}
+
+/** Live value of a repo (reloaded on every change it reports). */
+export function useSource<T>(src: Source<T>, onError?: (m: string) => void): T | null {
+  const st = storeOf(src as Source<unknown>)
+  const [value, setValue] = useState(() => st.value as T | null)
+  useEffect(() => {
+    const read = () => setValue(st.value as T)
+    const err = (e: unknown) => onError?.(errText(e))
+    st.readers.add(read)
+    st.errors.add(err)
+    if (!st.unsubscribe) st.unsubscribe = src.subscribe(st.reload)
+    st.reload()
+    return () => {
+      st.readers.delete(read)
+      st.errors.delete(err)
+      if (!st.readers.size) {
+        st.unsubscribe?.()
+        st.unsubscribe = null
+      }
+    }
+  }, [st, src, onError])
+  return value
+}
+
+/** The app's repos, for parts of the frame (the bell) that sit outside a screen. */
+export const ReposContext = createContext<{ floor: FloorRepo; menu: MenuRepo } | null>(null)
 
 /** Shop time, refreshed every `ms` (timers on tiles and tickets). */
 export function useNow(ms = 1000, offset = 0): Date {

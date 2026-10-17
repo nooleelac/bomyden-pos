@@ -7,7 +7,7 @@ import type { AuthRepo } from './auth/repo'
 import { staffFetch } from './auth/token'
 import { CashierApp } from './cashier/CashierApp'
 import { FloorApp } from './floor/FloorApp'
-import { session, useRoute } from './floor/hooks'
+import { ReposContext, session, useRoute } from './floor/hooks'
 import { createMemoryFloorRepo, type FloorRepo } from './floor/repo'
 import { sampleEvening } from './floor/seed'
 import { MenuApp } from './menu/MenuApp'
@@ -73,7 +73,7 @@ function Screens(props: { repos: Repos }) {
   if (top === 'nhan-vien') return <StaffApp />
   if (top === 'cai-dat') return <SettingsApp />
   if (top === 'thu-ngan' || top === 'ca') return <CashierApp floorRepo={repos.floor} menuRepo={repos.menu} />
-  if (top === '' || top === 'ban') return <FloorApp floorRepo={repos.floor} menuRepo={repos.menu} />
+  if (top === '' || top === 'ban' || top === 'don') return <FloorApp floorRepo={repos.floor} menuRepo={repos.menu} />
   return <MenuApp repo={repos.menu} role={me.role} />
 }
 
@@ -85,9 +85,11 @@ function App() {
   if (!repos) return <p style={{ padding: 16 }}>Đang kết nối…</p>
   return (
     <AuthGate repo={repos.auth}>
-      <Suspense fallback={<p style={{ padding: 16 }}>Đang tải…</p>}>
-        <Screens repos={repos} />
-      </Suspense>
+      <ReposContext.Provider value={repos}>
+        <Suspense fallback={<p style={{ padding: 16 }}>Đang tải…</p>}>
+          <Screens repos={repos} />
+        </Suspense>
+      </ReposContext.Provider>
     </AuthGate>
   )
 }

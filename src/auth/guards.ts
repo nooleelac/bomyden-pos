@@ -5,7 +5,7 @@ import type { Role } from './types'
 
 export const isManager = (r: Role | null | undefined): boolean => r === 'manager' || r === 'owner'
 
-export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings'
+export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'orders'
 
 const ACCESS: Record<Screen, Role[]> = {
   floor: ['waiter', 'cashier', 'manager', 'owner'],
@@ -18,6 +18,7 @@ const ACCESS: Record<Screen, Role[]> = {
   'menu-soldout': ['waiter', 'cashier', 'manager', 'owner'],
   'menu-admin': ['manager', 'owner'],
   settings: ['waiter', 'cashier', 'manager', 'owner'],
+  orders: ['waiter', 'cashier', 'manager', 'owner'],
 }
 
 export const SCREEN_LABEL: Record<Screen, string> = {
@@ -31,6 +32,7 @@ export const SCREEN_LABEL: Record<Screen, string> = {
   'menu-soldout': 'Hết món',
   'menu-admin': 'Quản lý thực đơn',
   settings: 'Cài đặt',
+  orders: 'Đơn',
 }
 
 /** The screen a route opens: #/ban, #/ban/caidat, #/bep/…, #/thu-ngan/…, #/ca, #/nhan-vien, #/cai-dat, menu routes. */
@@ -42,6 +44,7 @@ export function screenOf(route: string[]): Screen {
   if (top === 'ca') return 'shift'
   if (top === 'nhan-vien') return 'staff'
   if (top === 'cai-dat') return 'settings'
+  if (top === 'don') return 'orders'
   if (top === 'soldout') return 'menu-soldout'
   if (top === 'categories' || top === 'items' || top === 'groups') return 'menu-admin'
   return 'menu-order'
@@ -69,16 +72,15 @@ export interface NavItem {
   screen: Screen
 }
 
-/** Links for the top bar, in order: only the three work screens; everything else sits behind Cài đặt. */
+/** Tabs at the bottom, in order: the work screens only; the setup screens sit behind ☰ → Cài đặt. */
 export function navFor(role: Role): NavItem[] {
   const all: NavItem[] = [
-    { href: '#/ban', label: 'Sơ đồ bàn', icon: '🍽️', screen: 'floor' },
+    { href: '#/don', label: 'Đơn', icon: '🧾', screen: 'orders' },
+    { href: '#/ban', label: 'Bàn', icon: '🍽️', screen: 'floor' },
     { href: '#/bep', label: 'Bếp', icon: '🔥', screen: 'kitchen' },
     { href: '#/thu-ngan', label: 'Thu ngân', icon: '💵', screen: 'cashier' },
   ]
-  const links = all.filter(l => canOpen(role, l.screen))
-  if (settingsFor(role).length) links.push({ href: '#/cai-dat', label: 'Cài đặt', icon: '⚙️', screen: 'settings' })
-  return links
+  return all.filter(l => canOpen(role, l.screen))
 }
 
 /** Cards on #/cai-dat for the screens a role may open. Thực đơn opens the menu editor for managers, Hết món for others. */
@@ -95,7 +97,7 @@ export function settingsFor(role: Role): (NavItem & { hint: string })[] {
 }
 
 /** Screens reached from Cài đặt: the top bar marks Cài đặt and shows a way back. */
-export const isSettingsScreen = (s: Screen): boolean => s !== 'floor' && s !== 'kitchen' && s !== 'cashier'
+export const isSettingsScreen = (s: Screen): boolean => s !== 'floor' && s !== 'kitchen' && s !== 'cashier' && s !== 'orders'
 
 /** Menu module tabs a role sees. */
 export function menuTabsFor(role: Role): ('order' | 'categories' | 'items' | 'groups' | 'soldout')[] {

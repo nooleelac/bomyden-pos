@@ -329,3 +329,15 @@ export function allergyText(note: string | undefined): string {
   const what = (note ?? '').trim().replace(/^(có\s+)?(khách\s+)?(bị\s+)?dị\s*ứng\s*:?\s*/i, '')
   return what ? `⚠ DỊ ỨNG: ${what}` : '⚠ CÓ KHÁCH DỊ ỨNG'
 }
+
+/** "20 phút", "1 giờ 15 phút" (table tiles and the order list). */
+export function minutesText(ms: number): string {
+  const m = Math.max(0, Math.floor(ms / 60_000))
+  if (m < 60) return `${m} phút`
+  return `${Math.floor(m / 60)} giờ${m % 60 ? ` ${m % 60} phút` : ''}`
+}
+
+/** Table tiles: "20 phút", then "1g15p" so it fits. */
+export function shortMinutes(ms: number): string {
+  return ms < 3600_000 ? minutesText(ms) : formatDuration(ms)
+}

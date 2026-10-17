@@ -1,4 +1,4 @@
-// Kitchen display (Bếp nướng, Bếp lẩu, Bar, or Tất cả khu): dark, big, readable from 2 metres, no scrolling.
+// Kitchen display (Bếp nướng, Bếp lẩu, Bar, or Tất cả khu): bright like the rest of the app, big, readable from 2 metres.
 // One ticket = one Gửi bếp × one station × one order × one delivery table. Tap a dish to move it
 // Chờ làm → Đang làm → Xong; tap the ticket head (or "Xong phiếu") to bump; "Phiếu đã xong" to recall.
 // HUỶ and SỬA stay on top until "Đã biết", each with its own sound. Keypad: 1–9 select, Enter bump, 0 recall.
@@ -7,11 +7,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MenuRepo } from '../menu/repo'
 import type { Menu } from '../menu/types'
-import { UserChip } from '../auth/chrome'
-import { useAuth } from '../auth/context'
-import { canOpen } from '../auth/guards'
+import { TopBar } from '../auth/chrome'
 import { errText, go, useLive, useNow, useRoute } from '../floor/hooks'
-import { activeTickets, allergyText, buildTickets, clock, doneTickets, lineParts, tableTitle, type Ticket } from '../floor/logic'
+import { activeTickets, allergyText, clock, doneTickets, lineParts, tableTitle, type Ticket } from '../floor/logic'
 import type { FloorRepo } from '../floor/repo'
 import { play, soundReady, unlockSound, type SoundKind } from '../floor/sound'
 import type { FloorState, Line, LineStatus, Notice } from '../floor/types'
@@ -36,7 +34,6 @@ function loadPrefs(): Prefs {
 const NEXT: Partial<Record<LineStatus, LineStatus>> = { new: 'cooking', cooking: 'ready', ready: 'cooking' }
 
 export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
-  const { session } = useAuth()
   const { floorRepo: repo } = props
   const [toast, setToast] = useState<string | null>(null)
   const onError = useCallback((m: string) => setToast(m), [])
@@ -74,9 +71,18 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
 
   const stations = useMemo(() => (menu?.stations ?? []).filter(s => s.kind !== 'none'), [menu])
   const code = route[1] ?? ''
-  const station = code === 'all' ? 'all' : stations.find(s => s.code === code)?.id ?? null
+  // #/bep or an unknown code: all stations (the rail on the left switches)
+  const station = stations.find(s => s.code === code)?.id ?? 'all'
   const tickets = useMemo(() => (floor && menu && station ? activeTickets(floor, menu, station, now) : []), [floor, menu, station, now])
-  const perPage = prefs.columns * prefs.rows
+  // a narrow screen (phone, small tablet) shows fewer columns than set, so tickets stay readable
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const f = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', f)
+    return () => window.removeEventListener('resize', f)
+  }, [])
+  const cols = Math.max(1, Math.min(prefs.columns, Math.floor((width - 120) / 250)))
+  const perPage = cols * prefs.rows
   const pages = Math.max(1, Math.ceil(tickets.length / perPage))
   const pageNo = Math.min(page, pages - 1)
   const visible = tickets.slice(pageNo * perPage, pageNo * perPage + perPage)
@@ -133,64 +139,29 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
 
   if (!floor || !menu) return <div className="kds loading">Đang tải…</div>
 
-  if (!station) {
-    const all = buildTickets(floor, now)
-    return (
-      <div className={`kds kds-pick font-${prefs.font}`}>
-        <h1>Chọn khu chế biến cho máy này</h1>
-        <div className="kds-stations">
-          {stations.map(s => {
-            const ts = activeTickets(floor, menu, s.id, now)
-            return (
-              <button key={s.id} type="button" className="kds-station" onClick={() => go(`bep/${s.code}`)}>
-                <b>{s.name}</b>
-                <span>
-                  {ts.length} phiếu{ts.some(t => t.heat === 'late') ? ` (${ts.filter(t => t.heat === 'late').length} trễ)` : ''}
-                </span>
-              </button>
-            )
-          })}
-          <button type="button" className="kds-station" onClick={() => go('bep/all')}>
-            <b>Tất cả khu</b>
-            <span>{all.filter(t => !t.done).length} phiếu</span>
-          </button>
-        </div>
-        <div className="kds-pick-foot">
-          {canOpen(session.role, ['ban']) && <a href="#/ban">← Về sơ đồ bàn</a>}
-          <UserChip dark />
-        </div>
-      </div>
-    )
-  }
-
   const stationName = station === 'all' ? 'Tất cả khu' : stations.find(s => s.id === station)?.name
   const done = showDone ? doneTickets(floor, station, now) : []
+  const rail = [{ id: 'all', code: 'all', name: 'Tất cả' }, ...stations].map(s => {
+    const ts = activeTickets(floor, menu, s.id, now)
+    return { ...s, count: ts.length, late: ts.filter(t => t.heat === 'late').length }
+  })
 
   return (
-    <div className={`kds font-${prefs.font}${prefs.contrast ? ' high-contrast' : ''}`} style={{ ['--cols' as string]: prefs.columns, ['--rows' as string]: prefs.rows }}>
+    <div className="menu-app floor-app kitchen-app">
+      <TopBar />
+      <div className="kds-shell">
+        <nav className="area-rail kds-rail" aria-label="Khu chế biến">
+          {rail.map(s => (
+            <button key={s.id} type="button" className={'rail-item' + (station === s.id ? ' is-on' : '')} onClick={() => go(`bep/${s.code}`)}>
+              {s.name}
+              {s.count > 0 && <span className={'rail-count' + (s.late ? '' : ' is-calm')}>{s.count}</span>}
+              {s.late > 0 && <span className="rail-late">{s.late} trễ</span>}
+            </button>
+          ))}
+        </nav>
+    <div className={`kds font-${prefs.font}${prefs.contrast ? ' high-contrast' : ''}`} style={{ ['--cols' as string]: cols, ['--rows' as string]: prefs.rows }}>
       <header className="kds-bar">
-        {canOpen(session.role, ['ban']) && (
-          <a className="kds-btn kds-home" href="#/ban">
-            🍽️ Sơ đồ bàn
-          </a>
-        )}
-        <a className="kds-station-name" href="#/bep" title="Đổi khu">
-          {stationName}
-        </a>
-        {station === 'all' && (
-          <span className="kds-load">
-            {stations.map(s => {
-              const ts = activeTickets(floor, menu, s.id, now)
-              const late = ts.filter(t => t.heat === 'late').length
-              return (
-                <span key={s.id}>
-                  {s.name.replace('Bếp ', '')} {ts.length}
-                  {late ? <b className="late-text"> ({late} trễ)</b> : ''}
-                </span>
-              )
-            })}
-          </span>
-        )}
+        <b className="kds-station-name">{stationName}</b>
         <span className="kds-count">{tickets.length} phiếu chờ</span>
         {!sound ? (
           <button type="button" className="kds-btn kds-start" onClick={startShift}>
@@ -219,7 +190,6 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
         <label className="kds-check">
           <input type="checkbox" checked={prefs.contrast} onChange={e => setPrefs({ contrast: e.target.checked })} /> Tương phản cao
         </label>
-        <UserChip dark />
         <span className="kds-clock">{clock(now.toISOString())}</span>
       </header>
 
@@ -244,10 +214,10 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
           {visible.length === 0 && <p className="kds-empty">Không có phiếu chờ</p>}
           {/* masonry: ticket i goes to column i % cols, so the order still reads left to right and each ticket is as tall as its dishes */}
           {visible.length > 0 &&
-            Array.from({ length: prefs.columns }, (_, c) => (
+            Array.from({ length: cols }, (_, c) => (
               <div key={c} className="kds-col">
                 {visible.map((t, i) =>
-                  i % prefs.columns !== c ? null : (
+                  i % cols !== c ? null : (
                     <TicketCard
                       key={t.key}
                       t={t}
@@ -297,6 +267,8 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
           {toast}
         </div>
       )}
+    </div>
+      </div>
     </div>
   )
 }

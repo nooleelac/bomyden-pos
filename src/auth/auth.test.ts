@@ -39,13 +39,14 @@ describe('route guards by role', () => {
   it('manager and owner open everything', () => {
     for (const r of ['manager', 'owner'] as Role[]) expect(allowed(r)).toEqual(Object.keys(routes))
     expect(menuTabsFor('owner')).toContain('items')
-    expect(navFor('manager').map(l => l.label)).toEqual(['Sơ đồ bàn', 'Bếp', 'Thu ngân', 'Cài đặt'])
+    expect(navFor('manager').map(l => l.label)).toEqual(['Đơn', 'Bàn', 'Bếp', 'Thu ngân'])
     expect(settingsFor('manager').map(l => l.label)).toEqual(['Ca', 'Thực đơn', 'Bàn', 'Nhân viên'])
-    expect(navFor('waiter').map(l => l.label)).toEqual(['Sơ đồ bàn', 'Cài đặt'])
+    expect(navFor('waiter').map(l => l.label)).toEqual(['Đơn', 'Bàn'])
     expect(settingsFor('waiter').map(l => l.label)).toEqual(['Hết món'])
     expect(settingsFor('cashier').map(l => l.label)).toEqual(['Ca', 'Hết món', 'Bàn'])
     expect(settingsFor('kitchen')).toEqual([])
     expect(screenOf(['cai-dat'])).toBe('settings')
+    expect(screenOf(['don'])).toBe('orders')
   })
   it('nobody signed in opens nothing; unknown routes are the order menu', () => {
     expect(canOpen(null, ['ban'])).toBe(false)

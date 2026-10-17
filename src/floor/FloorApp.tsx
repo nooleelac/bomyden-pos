@@ -1,5 +1,5 @@
 // Waiter / cashier shell: floor map, order screen, area setup, and the "Chờ bưng" list that rings when
-// the kitchen marks dishes Xong. Routes (hash): #/ban  #/ban/don/<orderId>  #/ban/caidat
+// the kitchen marks dishes Xong. Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
@@ -12,6 +12,7 @@ import { clock, formatDuration, readyToServe, tableTitle } from './logic'
 import type { FloorRepo } from './repo'
 import { play, unlockSound } from './sound'
 import { FloorMap } from './screens/FloorMap'
+import { OrdersPage } from './screens/OrdersPage'
 import { OrderView } from './screens/OrderView'
 import { SetupScreen } from './screens/SetupScreen'
 
@@ -50,7 +51,7 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
   }, [ready])
 
   if (!floor || !menu) return <div className="menu-app loading">Đang tải sơ đồ bàn…</div>
-  const page = route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : 'map'
+  const page = route[0] === 'don' ? 'orders' : route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : 'map'
 
   return (
     <div className="menu-app floor-app">
@@ -91,6 +92,7 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
           )}
         </section>
       )}
+      {page === 'orders' && <OrdersPage floor={floor} now={now} role={role} />}
       {page === 'map' && <FloorMap floor={floor} repo={floorRepo} now={now} role={role} me={me} online={online} onError={onError} />}
       {page === 'order' && <OrderView key={route[2]} floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} orderId={route[2]} onError={onError} onInfo={onInfo} />}
       {page === 'setup' && (

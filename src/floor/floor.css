@@ -161,3 +161,55 @@
 .pay-bar { z-index: 12; }
 .setup-add { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .setup-add input:first-child { flex: 1 1 140px; width: auto; }
+
+.tile-amount { font-size: 13px; font-weight: 700; opacity: .95; }
+.rail-icon { font-size: 22px; line-height: 1.1; }
+
+/* #/don: wide order cards (Sapo style) */
+.order-cards { list-style: none; margin: 0; padding: 0 0 80px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 900px) { .order-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.order-card { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); color: var(--text); text-decoration: none; overflow: hidden; border-top: 5px solid var(--st-occupied); }
+.order-card.st-bill { border-top-color: var(--st-bill); }
+.order-card.st-paying { border-top-color: var(--st-paying); }
+.order-card-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px dashed var(--line); color: var(--slate); font-size: 16px; }
+.order-card-tag { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px 8px 8px 0; background: var(--st-occupied); font-size: 18px; }
+.st-bill .order-card-tag { background: var(--st-bill); }
+.st-paying .order-card-tag { background: var(--st-paying); }
+.order-card-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: stretch; min-height: 96px; }
+.order-card-table { display: grid; place-items: center; font-size: 30px; font-weight: 800; color: var(--text); border-right: 1px solid var(--line); padding: 8px; text-align: center; }
+.order-card-side { display: flex; flex-direction: column; justify-content: center; }
+.order-card-side > span { padding: 10px 14px; font-size: 16px; color: var(--slate); }
+.order-card-side > span + span { border-top: 1px solid var(--line); }
+.fab {
+  position: fixed; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 8; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 52px; padding: 0 22px; border-radius: 26px; background: #19c37d; color: #fff; font-weight: 700; font-size: 17px; text-decoration: none;
+  box-shadow: 0 6px 18px rgba(25, 195, 125, .35);
+}
+
+/* 🔔 */
+.bell { position: relative; flex: none; }
+.bell-spacer { width: 44px; }
+.bell-btn { position: relative; width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; font-size: 24px; line-height: 1; }
+.bell-btn:hover { background: var(--accent-soft); }
+.bell-count { position: absolute; top: 0; right: -4px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: var(--danger); color: #fff; font-size: 12px; font-weight: 800; line-height: 22px; text-align: center; border: 2px solid var(--surface); }
+.bell-backdrop { position: fixed; inset: 0; z-index: 30; }
+.bell-panel {
+  position: fixed; top: 60px; right: 8px; z-index: 31; width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 140px); overflow-y: auto;
+  background: var(--surface); border-radius: 14px; box-shadow: 0 12px 40px rgba(20, 30, 50, .25); padding: 12px 0 6px; color: var(--text);
+}
+.bell-panel h2 { font-size: 17px; margin: 0 16px 6px; }
+.bell-panel p { margin: 8px 16px; }
+.bell-panel ul { list-style: none; margin: 0; padding: 0; }
+.bell-panel li a { display: flex; align-items: flex-start; gap: 10px; padding: 10px 16px; color: inherit; text-decoration: none; border-top: 1px solid var(--line); font-size: 14px; }
+.bell-panel li.is-new a { background: var(--accent-soft); }
+.bell-icon { flex: none; font-size: 18px; }
+.bell-text { flex: 1; min-width: 0; }
+.bell-time { flex: none; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.bell-pop {
+  position: fixed; top: 62px; right: 8px; z-index: 32; max-width: min(420px, calc(100vw - 16px)); padding: 12px 14px; border-radius: 12px;
+  background: var(--text); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none; box-shadow: 0 8px 24px rgba(20, 30, 50, .3);
+  animation: bell-in .2s ease-out;
+}
+@keyframes bell-in { from { transform: translateY(-8px); opacity: 0; } }
+.drawer-list a.drawer-section { margin: 8px 0 0; padding-top: 14px; border-top: 1px dashed var(--line); color: var(--slate); font-weight: 800; }
+.drawer-list a.drawer-sub { padding-left: 36px; font-size: 15px; }
