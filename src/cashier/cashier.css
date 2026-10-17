@@ -2,7 +2,6 @@
    two columns from 900px (the counter tablet / PC). */
 
 .cashier-app { --cash: #2e7d32; --bank: #1565c0; --card: #6a1b9a; padding-bottom: 110px; }
-@media (prefers-color-scheme: dark) { .cashier-app { --cash: #66bb6a; --bank: #64b5f6; --card: #ba68c8; } }
 
 .cashier-main { max-width: 1240px; padding: 8px 16px 0; }
 .cashier-cols { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); align-items: start; }
@@ -18,7 +17,6 @@
 /* list */
 .shift-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; justify-content: space-between; margin: 4px 0 12px; padding: 10px 12px; border-radius: var(--radius); background: #e8f5e9; color: #1b5e20; font-size: 14px; }
 .shift-strip.is-closed { background: var(--warn-bg); color: var(--warn); }
-@media (prefers-color-scheme: dark) { .shift-strip { background: #10301a; color: #a5d6a7; } }
 .pay-list { list-style: none; margin: 0; padding: 0; }
 .pay-pick { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; text-decoration: none; text-align: left; font: inherit; cursor: pointer; }
 .pay-pick-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }

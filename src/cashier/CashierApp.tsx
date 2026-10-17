@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 import '../menu/menu.css'
 import '../floor/floor.css'
 import './cashier.css'
-import { Brand, NavLinks, SettingsBack, UserChip } from '../auth/chrome'
+import { SettingsBack, TopBar } from '../auth/chrome'
 import { useAuth } from '../auth/context'
 import type { MenuRepo } from '../menu/repo'
 import { useLive, useNow, useOnline, useRoute } from '../floor/hooks'
@@ -42,11 +42,7 @@ export function CashierApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
 
   return (
     <div className="menu-app floor-app cashier-app">
-      <header className="topbar">
-        <Brand />
-        <NavLinks />
-        <UserChip />
-      </header>
+      <TopBar />
       <SettingsBack />
       {!online && <div className="offline-bar">Mất kết nối: chưa thu tiền được, dữ liệu có thể chưa mới nhất</div>}
       {floor.shop.sample && <div className="sample-banner">Dữ liệu mẫu: giá, tên quán, địa chỉ và tài khoản nhận tiền chỉ là ví dụ.</div>}

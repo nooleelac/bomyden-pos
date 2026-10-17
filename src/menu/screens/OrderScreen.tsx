@@ -42,6 +42,7 @@ export function OrderScreen(props: {
   const [lines, setLines] = useState<Draft[]>(() => loadCart(storageKey))
   const [sent, setSent] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [cartOpen, setCartOpen] = useState(false)
   useEffect(() => {
     if (!storageKey) return
     try {
@@ -77,119 +78,154 @@ export function OrderScreen(props: {
   const total = quoted.reduce((s, x) => s + (x.q?.total ?? 0), 0)
   const blocked = quoted.filter(x => !x.q?.canAdd).length
 
+  // "Tất cả": every dish under its top-level group heading (Sapo style); one group or a search: one list.
+  const topOf = (catId: string) => {
+    const c = menu.categories.find(x => x.id === catId)
+    return c?.parentId ?? catId
+  }
+  const sections = query
+    ? [{ id: 'q', name: `Kết quả tìm “${query}”`, color: undefined as string | undefined, items: results }]
+    : tops
+        .filter(c => cat == null || c.id === cat)
+        .map(c => ({ id: c.id, name: c.name, color: c.color as string | undefined, items: results.filter(i => topOf(i.categoryId) === c.id) }))
+        .filter(s => s.items.length > 0)
+  const count = lines.reduce((n, l) => n + l.state.qty, 0)
+  const send = () => {
+    if (!onSend) return setSent(JSON.stringify(lines.map(l => toSendLine(l.state)), null, 1))
+    setSending(true)
+    onSend(lines.map(l => l.state)).then(
+      () => {
+        setLines([])
+        setCartOpen(false)
+        setSending(false)
+      },
+      () => setSending(false),
+    )
+  }
+
   return (
     <div className="order">
       <div className="search-bar">
         <input
           type="search"
           value={query}
-          placeholder="Tìm món: gõ không dấu, chữ đầu (sbn) hoặc mã (101)"
+          placeholder="🔍 Tìm món: gõ không dấu, chữ đầu (sbn) hoặc mã (101)"
           aria-label="Tìm món"
           onChange={e => setQuery(e.target.value)}
         />
       </div>
-      {!query && (
-        <nav className="cat-tabs" aria-label="Nhóm món">
-          <button type="button" className={'cat-tab' + (cat == null ? ' is-on' : '')} onClick={() => setCat(null)}>
+      <div className="order-body">
+        <nav className="cat-rail" aria-label="Nhóm món">
+          <button type="button" className={'rail-item' + (cat == null && !query ? ' is-on' : '')} onClick={() => (setCat(null), setQuery(''))}>
+            <span className="cat-dot" aria-hidden>
+              ★
+            </span>
             Tất cả
           </button>
           {tops.map(c => (
             <button
               key={c.id}
               type="button"
-              className={'cat-tab' + (cat === c.id ? ' is-on' : '')}
+              className={'rail-item' + (cat === c.id && !query ? ' is-on' : '')}
               style={{ ['--cat' as string]: c.color }}
-              onClick={() => setCat(c.id)}
+              onClick={() => (setCat(c.id), setQuery(''))}
             >
+              <span className="cat-dot" aria-hidden>
+                {c.name.trim().charAt(0).toUpperCase()}
+              </span>
               {c.name}
             </button>
           ))}
         </nav>
-      )}
 
-      <ul className="item-list">
-        {results.length === 0 && <li className="empty">Không tìm thấy món “{query}”</li>}
-        {results.map(item => {
-          const block = itemBlock(menu, item, now)
-          const color = menu.categories.find(c => c.id === item.categoryId)?.color
-          return (
-            <li key={item.id} className={'item-row' + (block ? ' is-out' : '')} style={{ ['--cat' as string]: color }}>
-              <button type="button" className="item-main" disabled={!!block} onClick={() => openItem(item)}>
-                <span className="item-name">
-                  {item.name} <span className="muted small">{item.code}</span>
-                </span>
-                <span className="item-price">{block ?? priceLabel(item)}</span>
-              </button>
-              {item.hasSizes && !block && (
-                <div className="size-row">
-                  {liveVariants(item).map(v => {
-                    const out = isSoldOut(v.soldOutUntil, now)
-                    return (
-                      <button key={v.id} type="button" className={'size-btn' + (out ? ' is-out' : '')} disabled={out} onClick={() => openItem(item, v.id)}>
-                        <b>{v.name}</b>
-                        <span>{out ? 'Hết' : vnd(v.price)}</span>
+        <div className="order-items">
+          {sections.length === 0 && <p className="empty">Không tìm thấy món “{query}”</p>}
+          {sections.map(s => (
+            <section key={s.id} className="item-section">
+              <h3 className="section-head">
+                <span>{s.name}</span>
+              </h3>
+              <ul className="item-grid">
+                {s.items.map(item => {
+                  const block = itemBlock(menu, item, now)
+                  const color = menu.categories.find(c => c.id === item.categoryId)?.color ?? s.color
+                  const sizes = item.hasSizes ? liveVariants(item) : []
+                  return (
+                    <li key={item.id} className={'item-card' + (block ? ' is-out' : '')} style={{ ['--cat' as string]: color }}>
+                      <button type="button" className="item-card-main" disabled={!!block} onClick={() => openItem(item)}>
+                        <span className="item-card-name">{item.name}</span>
+                        <span className="item-card-code">{item.code}</span>
+                        <span className="item-card-price">{block ?? (sizes.length > 1 ? `${sizes.length} giá · ${priceLabel(item)}` : priceLabel(item))}</span>
                       </button>
-                    )
-                  })}
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-
-      {lines.length > 0 && (
-        <section className="cart" aria-label="Món đang chọn">
-          <h2>Món đang chọn</h2>
-          <ul>
-            {quoted.map(({ l, item, q }) => (
-              <li key={l.key} className={q?.canAdd ? '' : 'is-bad'}>
-                <button type="button" className="cart-line" onClick={() => item && setOpen({ item, state: l.state, key: l.key })}>
-                  <span>
-                    <b>{l.state.qty} × {item?.name ?? 'Món đã xoá'}</b>
-                    <span className="muted small">{item ? describeLine(menu, item, l.state) : ''}</span>
-                    {q && !q.canAdd && <span className="field-error">{q.issues.find(i => i.level === 'error')?.message}</span>}
-                  </span>
-                  <b>{q?.total != null ? vnd(q.total) : '—'}</b>
-                </button>
-                <button type="button" className="icon-btn" aria-label="Bỏ dòng" onClick={() => setLines(p => p.filter(x => x.key !== l.key))}>
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="cart-foot">
-            <span>
-              Tạm tính <b>{vnd(total)}</b>
-            </span>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={blocked > 0 || sending}
-              onClick={() => {
-                if (!onSend) return setSent(JSON.stringify(lines.map(l => toSendLine(l.state)), null, 1))
-                setSending(true)
-                onSend(lines.map(l => l.state)).then(
-                  () => {
-                    setLines([])
-                    setSending(false)
-                  },
-                  () => setSending(false),
-                )
-              }}
-            >
-              {blocked > 0 ? `${blocked} món cần sửa` : sending ? 'Đang gửi…' : 'Gửi bếp'}
-            </button>
-          </div>
-          {props.footExtra}
+                      {sizes.length > 0 && !block && (
+                        <div className="size-row">
+                          {sizes.map(v => {
+                            const out = isSoldOut(v.soldOutUntil, now)
+                            return (
+                              <button key={v.id} type="button" className={'size-btn' + (out ? ' is-out' : '')} disabled={out} onClick={() => openItem(item, v.id)}>
+                                <b>{v.name}</b>
+                                <span>{out ? 'Hết' : vnd(v.price)}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))}
           {sent && (
             <details className="muted small">
               <summary>Chưa nối với đơn bàn: đây là dữ liệu sẽ gửi cho send_order_lines</summary>
               <pre>{sent}</pre>
             </details>
           )}
-        </section>
-      )}
+        </div>
+      </div>
+
+      <section className={'cart-bar' + (cartOpen && lines.length ? ' is-open' : '')} aria-label="Món đang chọn">
+        {cartOpen && lines.length > 0 && (
+          <div className="cart-panel">
+            <h2>Món đang chọn</h2>
+            <ul>
+              {quoted.map(({ l, item, q }) => (
+                <li key={l.key} className={q?.canAdd ? '' : 'is-bad'}>
+                  <button type="button" className="cart-line" onClick={() => item && setOpen({ item, state: l.state, key: l.key })}>
+                    <span>
+                      <b>
+                        {l.state.qty} × {item?.name ?? 'Món đã xoá'}
+                      </b>
+                      <span className="muted small">{item ? describeLine(menu, item, l.state) : ''}</span>
+                      {q && !q.canAdd && <span className="field-error">{q.issues.find(i => i.level === 'error')?.message}</span>}
+                    </span>
+                    <b>{q?.total != null ? vnd(q.total) : '—'}</b>
+                  </button>
+                  <button type="button" className="icon-btn" aria-label="Bỏ dòng" onClick={() => setLines(p => p.filter(x => x.key !== l.key))}>
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {props.footExtra}
+          </div>
+        )}
+        <div className="cart-foot">
+          <button type="button" className="cart-sum" disabled={!lines.length} onClick={() => setCartOpen(o => !o)} aria-expanded={cartOpen}>
+            <span className="cart-total">
+              Thành tiền: <b>{vnd(total)}</b>
+            </span>
+            <span className="muted small">
+              Mặt hàng: {count}
+              {lines.length > 0 && (cartOpen ? ' · Thu gọn ▾' : ' · Xem / sửa ▴')}
+            </span>
+          </button>
+          <button type="button" className="btn btn-primary btn-send" disabled={!lines.length || blocked > 0 || sending} onClick={send}>
+            {blocked > 0 ? `${blocked} món cần sửa` : sending ? 'Đang gửi…' : 'Gửi bếp ›'}
+          </button>
+        </div>
+      </section>
 
       {open && (
         <ItemPicker

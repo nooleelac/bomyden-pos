@@ -5,15 +5,9 @@
 
 /* the approval prompt sits above any screen (also the dark kitchen display): own tokens */
 .approval-layer {
-  --bg: #f6f4f1; --surface: #ffffff; --text: #1d1b19; --muted: #6b645d; --line: #e2ddd6; --accent: #b71c1c; --accent-ink: #fff;
-  --on: #1d1b19; --on-ink: #fff; --danger: #c62828; --danger-bg: #fdecea; --warn: #8a5300; --warn-bg: #fff4e0; --ok: #2e7d32; --radius: 10px;
+  --bg: #eaeffc; --surface: #ffffff; --text: #2a3a5c; --muted: #6c7a96; --line: #dbe2f1; --accent: #0a84ff; --accent-ink: #fff;
+  --on: #0a84ff; --on-ink: #fff; --danger: #e5383b; --danger-bg: #fdecec; --warn: #b25e00; --warn-bg: #fff3e0; --ok: #1fa45b; --radius: 12px;
   font: 15px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--text); text-align: left;
-}
-@media (prefers-color-scheme: dark) {
-  .approval-layer {
-    --bg: #141312; --surface: #1f1d1b; --text: #f1ede8; --muted: #a39b92; --line: #36322e; --accent: #e53935;
-    --on: #f1ede8; --on-ink: #141312; --danger: #ef5350; --danger-bg: #3a1c1b; --warn: #ffb74d; --warn-bg: #3a2c14;
-  }
 }
 .approval-layer *, .approval-layer *::before, .approval-layer *::after { box-sizing: border-box; }
 .approval-layer button { font: inherit; color: inherit; cursor: pointer; }
@@ -98,17 +92,14 @@
 .user-name { font-size: 13px; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .user-role { opacity: .8; }
 .user-switch {
-  min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.5); background: rgba(255,255,255,.15);
-  color: inherit; font-weight: 700; font-size: 13px; white-space: nowrap;
+  min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--accent); font-weight: 700; font-size: 13px; white-space: nowrap;
 }
 .user-chip.is-dark .user-switch { border-color: #555; background: #262626; min-height: 44px; font-size: 1em; }
 @media (max-width: 560px) {
   .user-role { display: none; }
   .user-name { max-width: 140px; }
-  /* phone: brand + who on the first row, screen links on their own row so none get cut off */
-  .topbar:has(> .top-links) { flex-wrap: wrap; row-gap: 4px; }
-  .topbar > .top-links { order: 3; flex: 1 0 100%; gap: 4px; padding-bottom: 2px; }
-  .topbar > .user-chip { margin-left: auto; }
+  .topbar .user-name { display: none; }
 }
 
 /* staff screen */

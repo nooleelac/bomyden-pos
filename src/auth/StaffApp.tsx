@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Sheet } from '../floor/screens/Sheet'
 import { errText, useRoute } from '../floor/hooks'
 import '../floor/floor.css'
-import { Brand, NavLinks, SettingsBack, UserChip } from './chrome'
+import { SettingsBack, TopBar } from './chrome'
 import { useAuth } from './context'
 import { isManager } from './guards'
 import { pinProblem } from './pin'
@@ -40,11 +40,7 @@ export function StaffApp() {
   }, [toast])
   return (
     <div className="menu-app floor-app staff-app">
-      <header className="topbar">
-        <Brand />
-        <NavLinks />
-        <UserChip />
-      </header>
+      <TopBar />
       <SettingsBack />
       {auth.repo.source === 'sample' && <div className="sample-banner">Nhân viên mẫu trên trình duyệt này. Đổi tên và đặt PIN thật trước khi dùng ở quán.</div>}
       <nav className="tabs" aria-label="Nhân viên">

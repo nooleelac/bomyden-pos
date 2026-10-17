@@ -12,6 +12,7 @@ import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableSt
 import { GuestPicker, Sheet } from './Sheet'
 
 type Filter = 'all' | 'free' | 'mine' | 'bill'
+const TAKEAWAY = 'takeaway'
 
 export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date; role: Role; me: string; online: boolean; onError: (m: string) => void }) {
   const { floor, repo, now, role } = props
@@ -69,118 +70,128 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
     setPickFor(t)
   }
 
+  const pickArea = (id: string) => {
+    setAreaId(id)
+    try {
+      sessionStorage.setItem('bmd-area', id)
+    } catch {
+      /* ignore */
+    }
+  }
+  const openOrders = floor.orders.filter(o => o.status === 'open').length
+  const showTakeaway = areaId === TAKEAWAY
+  const since = (iso: string) => formatDuration(now.getTime() - new Date(iso).getTime())
+  const tileSub = (t: TableTile) =>
+    t.state === 'free' ? 'Bàn trống'
+    : t.state === 'closed' ? 'Tạm đóng'
+    : t.state === 'cleaning' ? 'Chạm: dọn xong'
+    : t.state === 'paying' ? 'Đang thanh toán'
+    : t.state === 'bill' ? `Chờ TT · ${since(t.orders.map(o => o.billRequestedAt!).sort()[0])}`
+    : since(t.seatedSince!)
+
   return (
     <div className="floor screen">
-      <nav className="area-tabs" aria-label="Khu vực">
-        {areas.map(a => (
-          <button
-            key={a.id}
-            type="button"
-            className={'cat-tab' + (a.id === area?.id ? ' is-on' : '') + (a.active ? '' : ' is-closed')}
-            onClick={() => {
-              setAreaId(a.id)
-              try {
-                sessionStorage.setItem('bmd-area', a.id)
-              } catch {
-                /* ignore */
-              }
-            }}
-          >
-            {a.name}
-          </button>
-        ))}
-      </nav>
       <p className="floor-counts" aria-label="Đếm bàn">
-        <span className="dot st-free" /> Trống <b>{count(tiles, 'free')}</b>
-        <span className="dot st-occupied" /> Đang ngồi <b>{count(tiles, 'occupied')}</b>
-        <span className="dot st-bill" /> Chờ TT <b>{count(tiles, 'bill') + count(tiles, 'paying')}</b>
-        {count(tiles, 'cleaning') > 0 && (
-          <>
-            <span className="dot st-cleaning" /> Chờ dọn <b>{count(tiles, 'cleaning')}</b>
-          </>
-        )}
-        <span className="muted small"> · cả quán: {allTiles.length - count(allTiles, 'free') - count(allTiles, 'closed') - count(allTiles, 'cleaning')}/{allTiles.length} bàn có khách</span>
+        <span>
+          Tổng số đơn: <b>{openOrders}</b>
+        </span>
+        <span>
+          Bàn trống: <b>{count(allTiles, 'free')}</b>/{allTiles.length}
+        </span>
       </p>
-      <div className="chip-row filter-row" role="group" aria-label="Lọc bàn">
-        {(
-          [
-            ['all', 'Tất cả'],
-            ['free', 'Bàn trống'],
-            ['mine', 'Bàn của tôi'],
-            ['bill', 'Chờ thanh toán'],
-          ] as [Filter, string][]
-        ).map(([k, v]) => (
-          <button key={k} type="button" className={'chip chip-sm' + (filter === k ? ' is-on' : '')} aria-pressed={filter === k} onClick={() => setFilter(k)}>
-            {v}
-          </button>
-        ))}
-      </div>
-
-      <ul className="table-grid">
-        {shown.map(t => (
-          <li key={t.table.id}>
-            <button
-              type="button"
-              className={`table-tile st-${t.state}`}
-              aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}`}
-              onClick={() => tap(t)}
-              onContextMenu={e => {
-                e.preventDefault()
-                if (t.orders.length) return setPickFor(t)
-                if (t.state === 'free' && props.online) setOpenFor(t.table.id)
-              }}
-            >
-              <span className="tile-top">
-                <b className="tile-name">{t.table.name}</b>
-                <span className="tile-marks">
-                  {t.kitchenHeat && t.kitchenHeat !== 'ok' && <span className={`mark heat-${t.kitchenHeat}`} title="Món gửi bếp lâu chưa ra" />}
-                  {t.readyCount > 0 && (
-                    <span className="mark ready" title="Món xong chờ bưng">
-                      {t.readyCount}
-                    </span>
-                  )}
-                </span>
-              </span>
-              <span className="tile-state">{TABLE_STATE_LABEL[t.state]}</span>
-              {t.orders.length > 0 && (
-                <span className="tile-info">
-                  {t.orders.length > 1 && <b>{t.orders.length} đơn · </b>}
-                  <span className={t.overSeats ? 'over' : ''}>{t.guests} khách</span> · {formatDuration(now.getTime() - new Date(t.seatedSince!).getTime())}
-                </span>
-              )}
-              {t.state === 'bill' && <span className="tile-info">chờ {formatDuration(now.getTime() - new Date(t.orders.map(o => o.billRequestedAt!).sort()[0]).getTime())}</span>}
-              {t.groupLabel && <span className="tile-group">{t.groupLabel}</span>}
-              {seeAmounts && t.amount > 0 && <span className="tile-amount">{vnd(t.amount)}</span>}
-              {t.state === 'free' && <span className="tile-info muted">{t.table.seats} ghế</span>}
-              {t.state === 'cleaning' && <span className="tile-info">Chạm: Dọn xong</span>}
+      <div className="floor-body">
+        <nav className="area-rail" aria-label="Khu vực">
+          {areas.map(a => (
+            <button key={a.id} type="button" className={'rail-item' + (!showTakeaway && a.id === area?.id ? ' is-on' : '') + (a.active ? '' : ' is-closed')} onClick={() => pickArea(a.id)}>
+              {a.name}
             </button>
-          </li>
-        ))}
-        {shown.length === 0 && <li className="empty">Không có bàn phù hợp</li>}
-      </ul>
-
-      <section className="card takeaway-col" aria-label="Mang về">
-        <header className="card-head">
-          <h2>Mang về</h2>
-          <button type="button" className="btn btn-small" onClick={() => (props.online ? setTakeaway(true) : props.onError('Mất kết nối'))}>
-            + Mang về
-          </button>
-        </header>
-        {takeaways.length === 0 && <p className="muted small">Chưa có đơn mang về</p>}
-        <ul className="rows">
-          {takeaways.map(o => (
-            <li key={o.id}>
-              <a className="order-pick" href={`#/ban/don/${o.id}`}>
-                <b>{orderTitle(floor, o)}</b>
-                <span className="muted small">
-                  {formatDuration(now.getTime() - new Date(o.openedAt).getTime())}
-                  {seeAmounts && ` · ${vnd(orderAmount(floor, o.id))}`}
-                </span>
-              </a>
-            </li>
           ))}
-        </ul>
-      </section>
+          <button type="button" className={'rail-item' + (showTakeaway ? ' is-on' : '')} onClick={() => pickArea(TAKEAWAY)}>
+            🥡 Mang về
+            {takeaways.length > 0 && <span className="rail-count">{takeaways.length}</span>}
+          </button>
+        </nav>
+        <div className="floor-main">
+          {showTakeaway ? (
+            <section className="card takeaway-col" aria-label="Mang về">
+              <header className="card-head">
+                <h2>Mang về</h2>
+                <button type="button" className="btn btn-small btn-primary" onClick={() => (props.online ? setTakeaway(true) : props.onError('Mất kết nối'))}>
+                  + Tạo đơn mang về
+                </button>
+              </header>
+              {takeaways.length === 0 && <p className="muted small">Chưa có đơn mang về</p>}
+              <ul className="rows">
+                {takeaways.map(o => (
+                  <li key={o.id}>
+                    <a className="order-pick" href={`#/ban/don/${o.id}`}>
+                      <b>{orderTitle(floor, o)}</b>
+                      <span className="muted small">
+                        {since(o.openedAt)}
+                        {seeAmounts && ` · ${vnd(orderAmount(floor, o.id))}`}
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : (
+            <>
+              <div className="chip-row filter-row" role="group" aria-label="Lọc bàn">
+                {(
+                  [
+                    ['all', 'Tất cả'],
+                    ['free', 'Bàn trống'],
+                    ['mine', 'Bàn của tôi'],
+                    ['bill', 'Chờ thanh toán'],
+                  ] as [Filter, string][]
+                ).map(([k, v]) => (
+                  <button key={k} type="button" className={'chip chip-sm' + (filter === k ? ' is-on' : '')} aria-pressed={filter === k} onClick={() => setFilter(k)}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+              <ul className="table-grid">
+                {shown.map(t => (
+                  <li key={t.table.id}>
+                    <button
+                      type="button"
+                      className={`table-tile st-${t.state}`}
+                      aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}`}
+                      onClick={() => tap(t)}
+                      onContextMenu={e => {
+                        e.preventDefault()
+                        if (t.orders.length) return setPickFor(t)
+                        if (t.state === 'free' && props.online) setOpenFor(t.table.id)
+                      }}
+                    >
+                      <span className="tile-marks">
+                        {t.kitchenHeat && t.kitchenHeat !== 'ok' && <span className={`mark heat-${t.kitchenHeat}`} title="Món gửi bếp lâu chưa ra" />}
+                        {t.readyCount > 0 && (
+                          <span className="mark ready" title="Món xong chờ bưng">
+                            {t.readyCount}
+                          </span>
+                        )}
+                      </span>
+                      <b className="tile-name">{t.table.name}</b>
+                      <span className="tile-sub">{tileSub(t)}</span>
+                      {t.orders.length > 0 && (
+                        <span className="tile-info">
+                          {t.orders.length > 1 && <b>{t.orders.length} đơn · </b>}
+                          <span className={t.overSeats ? 'over' : ''}>{t.guests} khách</span>
+                          {seeAmounts && t.amount > 0 && <> · {vnd(t.amount)}</>}
+                        </span>
+                      )}
+                      {t.groupLabel && <span className="tile-group">{t.groupLabel}</span>}
+                    </button>
+                  </li>
+                ))}
+                {shown.length === 0 && <li className="empty">Không có bàn phù hợp</li>}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
 
       {openFor && (
         <OpenTableSheet
