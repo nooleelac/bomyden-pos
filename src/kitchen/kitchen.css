@@ -123,3 +123,4 @@
 .kds-done ul { list-style: none; margin: 0; padding: 0; }
 .kds-done li { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--k-line); }
 .muted-icon { color: var(--k-red); }
+.kds-home { display: inline-flex; align-items: center; color: inherit; text-decoration: none; }

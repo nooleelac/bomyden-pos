@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Sheet } from '../floor/screens/Sheet'
 import { errText, useRoute } from '../floor/hooks'
 import '../floor/floor.css'
-import { NavLinks, SettingsBack, UserChip } from './chrome'
+import { Brand, NavLinks, SettingsBack, UserChip } from './chrome'
 import { useAuth } from './context'
 import { isManager } from './guards'
 import { pinProblem } from './pin'
@@ -41,7 +41,7 @@ export function StaffApp() {
   return (
     <div className="menu-app floor-app staff-app">
       <header className="topbar">
-        <b className="brand">Bò Mỹ Đen</b>
+        <Brand />
         <NavLinks />
         <UserChip />
       </header>

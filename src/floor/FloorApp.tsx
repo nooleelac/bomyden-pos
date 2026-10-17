@@ -2,7 +2,7 @@
 // the kitchen marks dishes Xong. Routes (hash): #/ban  #/ban/don/<orderId>  #/ban/caidat
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NavLinks, SettingsBack, UserChip } from '../auth/chrome'
+import { Brand, NavLinks, SettingsBack, UserChip } from '../auth/chrome'
 import { useAuth } from '../auth/context'
 import type { MenuRepo } from '../menu/repo'
 import '../menu/menu.css'
@@ -55,7 +55,7 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
   return (
     <div className="menu-app floor-app">
       <header className="topbar">
-        <b className="brand">Bò Mỹ Đen</b>
+        <Brand />
         <NavLinks />
         <UserChip />
       </header>

@@ -82,3 +82,23 @@ export function errText(e: unknown): string {
  * payments with it; in Supabase mode the server knows from the PIN session instead.
  */
 export const session: { actor: Actor } = { actor: { name: '', role: 'waiter' } }
+
+// Orders this device just opened from the map. Leaving one before anything was sent hands the table back (an
+// accidental tap must not leave a table "Đang ngồi"); see OrderView.
+const quickKey = (id: string) => `bmd-quick-${id}`
+export function markQuickOpened(id: string) {
+  try {
+    sessionStorage.setItem(quickKey(id), '1')
+  } catch {
+    /* ignore */
+  }
+}
+export function takeQuickOpened(id: string): boolean {
+  try {
+    const on = sessionStorage.getItem(quickKey(id)) === '1'
+    sessionStorage.removeItem(quickKey(id))
+    return on
+  } catch {
+    return false
+  }
+}

@@ -2,7 +2,7 @@
 // Routes (hash): #/order  #/categories  #/items  #/items/<id>  #/groups  #/soldout
 
 import { useCallback, useEffect, useState } from 'react'
-import { NavLinks, SettingsBack, UserChip } from '../auth/chrome'
+import { Brand, NavLinks, SettingsBack, UserChip } from '../auth/chrome'
 import { menuTabsFor } from '../auth/guards'
 import type { Role } from '../floor/types'
 import '../floor/floor.css'
@@ -79,7 +79,7 @@ export function MenuApp(props: { repo: MenuRepo; role: Role }) {
   return (
     <div className="menu-app floor-app">
       <header className="topbar">
-        <b className="brand">Bò Mỹ Đen</b>
+        <Brand />
         <NavLinks />
         <UserChip />
       </header>

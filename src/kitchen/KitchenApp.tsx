@@ -169,6 +169,11 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
   return (
     <div className={`kds font-${prefs.font}${prefs.contrast ? ' high-contrast' : ''}`} style={{ ['--cols' as string]: prefs.columns, ['--rows' as string]: prefs.rows }}>
       <header className="kds-bar">
+        {canOpen(session.role, ['ban']) && (
+          <a className="kds-btn kds-home" href="#/ban">
+            🍽️ Sơ đồ bàn
+          </a>
+        )}
         <a className="kds-station-name" href="#/bep" title="Đổi khu">
           {stationName}
         </a>

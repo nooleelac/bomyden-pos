@@ -2,7 +2,7 @@
 // unsent cart kept on this device) and Đã gửi (rounds with each dish's kitchen state, Sửa / Huỷ / Đã bưng),
 // plus the table actions: giục, tạm tính, thanh toán, chuyển bàn, gộp, ghép, chuyển món, tách đơn, trả bàn.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isManager } from '../../auth/guards'
 import { describeLine, toSendLine, vnd, type PickerState } from '../../menu/picker'
 import { newId } from '../../menu/repo'
@@ -13,7 +13,7 @@ import { prebillData } from '../../cashier/bill'
 import { printBlocks } from '../../cashier/print'
 import { receiptBlocks } from '../../cashier/receipt'
 import { quoteBill, voidNeedsManager } from '../engine'
-import { errText, go } from '../hooks'
+import { errText, go, takeQuickOpened } from '../hooks'
 import { clock, formatDuration, groupLabel, isUnfinished, lineParts, orderAmount, orderLabel, orderTitle, stationWait, tableName, tableTitle } from '../logic'
 import type { FloorRepo } from '../repo'
 import { LINE_STATUS_LABEL, NOTE_MAX, RUSH_REASONS, type FloorState, type Line, type Role } from '../types'
@@ -40,6 +40,23 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
   const [cartCount, setCartCount] = useState(0)
   const batch = useRef<string | null>(null)
   const fail = useCallback((e: unknown) => props.onError(errText(e)), [props])
+
+  // A table opened by one tap and left with nothing sent and nothing in the cart goes back to Trống.
+  const unused = useRef(true)
+  useEffect(() => {
+    unused.current = lines.length === 0 && cartCount === 0
+  }, [lines.length, cartCount])
+  const { orderId, onInfo } = props
+  useEffect(
+    () => () => {
+      // checked after the route settles, so a remount of this same order (StrictMode) keeps the table
+      setTimeout(() => {
+        if (location.hash.includes(`/don/${orderId}`)) return
+        if (unused.current && takeQuickOpened(orderId)) repo.closeEmptyOrder(orderId).then(() => onInfo('Chưa gọi món nên đã trả lại bàn trống'), () => undefined)
+      })
+    },
+    [orderId, repo, onInfo],
+  )
 
   if (!order) return <p className="empty">Không tìm thấy đơn. <a href="#/ban">Về sơ đồ bàn</a></p>
   if (order.status !== 'open') {

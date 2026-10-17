@@ -2,9 +2,19 @@
 // "← Cài đặt" strip on screens opened from Cài đặt.
 
 import { useAuth } from './context'
-import { SCREEN_LABEL, isSettingsScreen, navFor, screenOf } from './guards'
+import { SCREEN_LABEL, canOpen, homeRoute,isSettingsScreen, navFor, screenOf } from './guards'
 import { ROLE_LABEL } from './types'
 import { useRoute } from '../floor/hooks'
+
+/** Shop name at the top left: tapping it always goes home (Sơ đồ bàn; the kitchen screen for kitchen accounts). */
+export function Brand() {
+  const { session } = useAuth()
+  return (
+    <a className="brand" href={'#/' + (canOpen(session.role, 'floor') ? 'ban' : homeRoute(session.role))} title="Về trang chủ">
+      Bò Mỹ Đen
+    </a>
+  )
+}
 
 export function NavLinks() {
   const { session } = useAuth()

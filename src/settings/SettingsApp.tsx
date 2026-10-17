@@ -1,7 +1,7 @@
 // #/cai-dat: one card per setup screen the signed-in role may open (Ca, Thực đơn, Bàn, Nhân viên). The top bar
 // itself only carries the three work screens (Sơ đồ bàn, Bếp, Thu ngân).
 
-import { NavLinks, UserChip } from '../auth/chrome'
+import { Brand, NavLinks, UserChip } from '../auth/chrome'
 import { useAuth } from '../auth/context'
 import { settingsFor } from '../auth/guards'
 import '../menu/menu.css'
@@ -14,7 +14,7 @@ export function SettingsApp() {
   return (
     <div className="menu-app floor-app">
       <header className="topbar">
-        <b className="brand">Bò Mỹ Đen</b>
+        <Brand />
         <NavLinks />
         <UserChip />
       </header>

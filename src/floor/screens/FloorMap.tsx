@@ -1,10 +1,11 @@
 // Floor map: one page per area, one tile per table, colour from the orders (never set by hand).
-// Tap a free table to open it, an occupied one to enter its order (choose the order when the table is shared),
-// long-press (or right-click) for the quick menu. Takeaway orders sit in their own column.
+// Tap a free table to open it straight into Gọi món, an occupied one to enter its order (choose the order when the
+// table is shared), long-press (or right-click) for the quick menu (on a free table: guest count and gộp bàn).
+// Takeaway orders sit in their own column.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { vnd } from '../../menu/picker'
-import { go } from '../hooks'
+import { go, markQuickOpened } from '../hooks'
 import { areaTables, formatDuration, openOrdersAt, orderAmount, orderLabel, orderTitle, tableTile, type TableTile } from '../logic'
 import type { FloorRepo } from '../repo'
 import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableState } from '../types'
@@ -42,12 +43,27 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   )
   const takeaways = floor.orders.filter(o => o.kind === 'takeaway' && o.status === 'open').sort((a, b) => (a.takeawayNo ?? 0) - (b.takeawayNo ?? 0))
 
+  // One tap on a free table opens it with its seat count as the guest count (editable on the order screen) and goes
+  // straight to Gọi món. Gộp bàn / exact guest count: long-press (right-click) a free table for the full sheet.
+  const opening = useRef(false)
+  const quickOpen = (t: TableTile) => {
+    if (opening.current) return
+    opening.current = true
+    repo
+      .openTable({ tableId: t.table.id, guestCount: Math.min(99, Math.max(1, t.table.seats || 1)) })
+      .then(id => {
+        markQuickOpened(id)
+        go(`ban/don/${id}`)
+      }, fail)
+      .finally(() => (opening.current = false))
+  }
+
   const tap = (t: TableTile) => {
     if (t.state === 'cleaning') return repo.markClean(t.table.id).catch(fail)
     if (t.orders.length === 0) {
       if (t.state === 'closed') return props.onError('Khu này đang tạm đóng')
       if (!props.online) return props.onError('Mất kết nối: chưa mở bàn mới được')
-      return setOpenFor(t.table.id)
+      return quickOpen(t)
     }
     if (t.orders.length === 1) return go(`ban/don/${t.orders[0].id}`)
     setPickFor(t)
@@ -109,9 +125,9 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
               aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}`}
               onClick={() => tap(t)}
               onContextMenu={e => {
-                if (!t.orders.length) return
                 e.preventDefault()
-                setPickFor(t)
+                if (t.orders.length) return setPickFor(t)
+                if (t.state === 'free' && props.online) setOpenFor(t.table.id)
               }}
             >
               <span className="tile-top">
@@ -166,7 +182,19 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
         </ul>
       </section>
 
-      {openFor && <OpenTableSheet floor={floor} tableId={openFor} onClose={() => setOpenFor(null)} onOpen={(g, extra) => repo.openTable({ tableId: openFor, guestCount: g, extraTableIds: extra }).then(id => go(`ban/don/${id}`), fail)} />}
+      {openFor && (
+        <OpenTableSheet
+          floor={floor}
+          tableId={openFor}
+          onClose={() => setOpenFor(null)}
+          onOpen={(g, extra) =>
+            repo.openTable({ tableId: openFor, guestCount: g, extraTableIds: extra }).then(id => {
+              markQuickOpened(id)
+              go(`ban/don/${id}`)
+            }, fail)
+          }
+        />
+      )}
       {pickFor && (
         <Sheet title={`Bàn ${pickFor.table.name}`} subtitle={pickFor.orders.length > 1 ? 'Bàn có nhiều đơn: chọn đúng đơn trước khi gọi món' : undefined} onClose={() => setPickFor(null)}>
           <ul className="rows">
