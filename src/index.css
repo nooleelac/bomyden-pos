@@ -1,0 +1,19 @@
+:root {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.4;
+  color-scheme: light dark;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f6f4f1;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #141312;
+  }
+}
