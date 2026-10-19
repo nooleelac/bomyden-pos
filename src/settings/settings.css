@@ -13,3 +13,12 @@
   flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px;
   background: var(--bg); font-size: 24px;
 }
+
+/* Cài đặt → Thanh toán */
+.pay-settings { max-width: 720px; }
+.pay-methods { list-style: none; margin: 4px 0 0; padding: 0; }
+.pay-methods li { border-top: 1px solid var(--line); padding: 4px 0; }
+.pay-methods li:first-child { border-top: 0; }
+.pay-settings .pick-group { border: 0; padding: 0; margin: 0 0 10px; }
+.pay-settings .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.pay-settings-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 12px 0 24px; }

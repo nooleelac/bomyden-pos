@@ -8,6 +8,7 @@ import { billTableLabel } from '../floor/engine'
 import { orderLabel, tableName, tableTitle } from '../floor/logic'
 import type { Bill, FloorState, Line, Order, ShopProfile } from '../floor/types'
 import type { ReceiptData, ReceiptGroup, ReceiptItem, ReceiptPayment } from './receipt'
+import { enabledMethods } from './config'
 
 /** 'Bàn 5-B', 'Bàn 3 + 4 (gộp)', 'MV-02' from a stored label ('5-B', 'nhóm gộp 3+4', 'MV-02'). */
 export function receiptTableTitle(label: string): string {
@@ -64,9 +65,9 @@ export function payMemo(s: FloorState, order: Order, part = ''): string {
   return asciiNote(`BMD${orderCode(order.id)}${part} ${where}`)
 }
 
-/** VietQR payload with the exact amount and memo, or null when the shop has no bank account set. */
+/** VietQR payload with the exact amount and memo, or null when the shop has no bank account set or takes no transfers. */
 export function vietQr(shop: ShopProfile, amount: number, memo: string): string | null {
-  if (!shop.bankBin || !shop.bankAccount || amount <= 0) return null
+  if (!enabledMethods(shop).includes('bank') || !shop.bankBin || !shop.bankAccount || amount <= 0) return null
   return vietQrPayload({ bankBin: shop.bankBin, account: shop.bankAccount, amount, note: memo })
 }
 

@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { seedMenu } from '../menu/seed'
 import * as E from '../floor/engine'
 import { createMemoryFloorRepo } from '../floor/repo'
 import { seedFloor } from '../floor/seed'
 import type { Actor, SendLineInput } from '../floor/types'
-import { canOpen, homeRoute, menuTabsFor, navFor, screenOf, settingsFor } from './guards'
+import { canOpen, homeRoute, menuTabsFor, navFor, screenOf, settingsFor, staffTabsFor } from './guards'
 import { isIdle, shouldTouch } from './idle'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './memoryRepo'
+import { DEFAULT_PERMS, PERMS, normalizeMatrix, roleCan, setPermMatrix, type Perm } from './permissions'
 import { attemptPin, pinProblem } from './pin'
 import type { Role } from './types'
 
@@ -26,11 +27,11 @@ describe('route guards by role', () => {
     expect(canOpen('waiter', ['items'])).toBe(false)
     expect(canOpen('waiter', ['categories'])).toBe(false)
   })
-  it('kitchen sees only #/bep', () => {
-    expect(allowed('kitchen')).toEqual(['kitchen'])
+  it('kitchen: #/bep, and Hết món (menu.soldout, which set_sold_out always allowed the kitchen)', () => {
+    expect(allowed('kitchen')).toEqual(['kitchen', 'soldout'])
     expect(homeRoute('kitchen')).toBe('bep')
     expect(navFor('kitchen').map(l => l.href)).toEqual(['#/bep'])
-    expect(menuTabsFor('kitchen')).toEqual([])
+    expect(menuTabsFor('kitchen')).toEqual(['soldout'])
   })
   it('cashier: floor, temporary tables, cashier and shift; no menu manager or staff', () => {
     expect(allowed('cashier')).toEqual(['floor', 'setup', 'order', 'cashier', 'pay', 'shift', 'menuOrder', 'soldout', 'root'])
@@ -40,11 +41,11 @@ describe('route guards by role', () => {
     for (const r of ['manager', 'owner'] as Role[]) expect(allowed(r)).toEqual(Object.keys(routes))
     expect(menuTabsFor('owner')).toContain('items')
     expect(navFor('manager').map(l => l.label)).toEqual(['Đơn', 'Bàn', 'Bếp', 'Thu ngân'])
-    expect(settingsFor('manager').map(l => l.label)).toEqual(['Ca', 'Thực đơn', 'Bàn', 'Nhân viên'])
+    expect(settingsFor('manager').map(l => l.label)).toEqual(['Ca', 'Thực đơn', 'Bàn', 'Thanh toán', 'Nhân viên'])
     expect(navFor('waiter').map(l => l.label)).toEqual(['Đơn', 'Bàn'])
     expect(settingsFor('waiter').map(l => l.label)).toEqual(['Hết món'])
     expect(settingsFor('cashier').map(l => l.label)).toEqual(['Ca', 'Hết món', 'Bàn'])
-    expect(settingsFor('kitchen')).toEqual([])
+    expect(settingsFor('kitchen').map(l => l.label)).toEqual(['Hết món'])
     expect(screenOf(['cai-dat'])).toBe('settings')
     expect(screenOf(['don'])).toBe('orders')
   })
@@ -126,7 +127,7 @@ describe('sign-in on a shared device (memory engine)', () => {
     expect(s).toMatchObject({ name: 'Hùng', role: 'waiter' })
     expect(repo.current()?.staffId).toBe('s-hung')
     // the audit log is for managers
-    await expect(repo.audit()).rejects.toThrow('Chỉ quản lý')
+    await expect(repo.audit()).rejects.toThrow('Chưa có quyền: Xem nhật ký')
     await signedIn(repo, 's-ha', '1397')
     const log = await repo.audit()
     expect(log.filter(a => a.action === 'pin_failed' && a.staff === 'Hùng')).toHaveLength(4)
@@ -155,7 +156,7 @@ describe('sign-in on a shared device (memory engine)', () => {
   it('a kitchen display lists kitchen accounts and managers, and refuses others', async () => {
     const repo = createMemoryAuthRepo({ device: { name: 'Màn bếp', kind: 'kitchen' } })
     expect((await repo.roster()).map(r => r.name)).toEqual(['Bếp nướng', 'Quầy bar', 'Quản lý Hà', 'Chủ quán'])
-    expect(await repo.signIn('s-lan', '3690')).toMatchObject({ ok: false, error: 'Máy bếp chỉ đăng nhập tài khoản bếp hoặc quản lý' })
+    expect(await repo.signIn('s-lan', '3690')).toMatchObject({ ok: false, error: 'Máy bếp chỉ đăng nhập người có quyền Màn hình bếp' })
   })
 
   it('an unregistered device registers once with a manager code', async () => {
@@ -174,8 +175,8 @@ describe('staff management rules (manager vs owner)', () => {
   it('managers manage waiters, kitchen and cashiers; only owners manage managers; nobody disables themselves', async () => {
     const repo = createMemoryAuthRepo({})
     await signedIn(repo, 's-hung', '2580')
-    await expect(repo.listStaff()).rejects.toThrow('Chỉ quản lý')
-    await expect(repo.saveStaff({ name: 'Tý', role: 'waiter', pin: '7531' })).rejects.toThrow('Chỉ quản lý')
+    await expect(repo.listStaff()).rejects.toThrow('Chưa có quyền: Quản lý nhân viên')
+    await expect(repo.saveStaff({ name: 'Tý', role: 'waiter', pin: '7531' })).rejects.toThrow('Chưa có quyền: Quản lý nhân viên')
     await signedIn(repo, 's-ha', '1397')
     await expect(repo.saveStaff({ name: 'Tý', role: 'waiter', pin: '1234' })).rejects.toThrow('dãy liên tiếp')
     await expect(repo.saveStaff({ name: 'Tý', role: 'waiter' })).rejects.toThrow('Đặt mã PIN')
@@ -237,7 +238,7 @@ describe('manager approval flow', () => {
     const line = (await floor.load()).lines.find(l => l.orderId === orderId)!
     await expect(floor.voidLine(line.id, { qty: 1, reason: 'Khách đổi ý' })).rejects.toThrow('Huỷ món đã gửi bếp: cần quản lý nhập mã PIN')
     // a waiter cannot approve; a wrong manager PIN counts toward the lock
-    expect(await auth.verifyManagerPin('s-mai', '3691', { action: 'void_item', orderId, lineId: line.id })).toMatchObject({ ok: false, error: 'Chỉ quản lý hoặc chủ quán duyệt được' })
+    expect(await auth.verifyManagerPin('s-mai', '3691', { action: 'void_item', orderId, lineId: line.id })).toMatchObject({ ok: false, error: 'Người này chưa có quyền duyệt việc này' })
     expect(await auth.verifyManagerPin('s-ha', '0000', { action: 'void_item', orderId, lineId: line.id })).toMatchObject({ ok: false, attemptsLeft: 4 })
     const ok = await auth.verifyManagerPin('s-ha', '1397', { action: 'void_item', orderId, lineId: line.id })
     if (!ok.ok) throw new Error(ok.error)
@@ -302,5 +303,125 @@ describe('manager approval flow', () => {
     const ok = await auth.verifyManagerPin('s-ha', '1397', { action: 'void_order', orderId: 'o1' })
     c.advance(121_000)
     expect(auth.consumeApproval(ok.ok ? ok.token : '', { action: 'void_order', orderId: 'o1' })).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------- quyền theo vai trò (0009)
+
+describe('permissions set by the owner', () => {
+  afterEach(() => setPermMatrix(DEFAULT_PERMS))
+
+  it('the defaults are the old fixed rules; the owner has everything whatever the table says', () => {
+    expect(roleCan('waiter', 'order.take')).toBe(true)
+    expect(roleCan('waiter', 'pay.collect')).toBe(false)
+    expect(DEFAULT_PERMS.manager).toEqual(PERMS.filter(p => p !== 'admin.delete'))
+    expect(roleCan('manager', 'admin.delete')).toBe(false)
+    expect(roleCan('owner', 'admin.delete')).toBe(true)
+    const none = normalizeMatrix({})
+    expect(roleCan('owner', 'menu.edit', none)).toBe(true)
+    expect(roleCan('manager', 'menu.edit', none)).toBe(false)
+    expect(normalizeMatrix({ waiter: ['pay.collect', 'bogus', 'order.take', 'pay.collect'] }).waiter).toEqual(['order.take', 'pay.collect'])
+  })
+
+  it('screens, tabs and the home screen follow the table', () => {
+    setPermMatrix({ ...DEFAULT_PERMS, waiter: ['order.take', 'pay.collect', 'menu.edit'], cashier: ['pay.collect'] })
+    expect(canOpen('waiter', ['thu-ngan'])).toBe(true)
+    expect(navFor('waiter').map(l => l.label)).toEqual(['Đơn', 'Bàn', 'Thu ngân'])
+    expect(menuTabsFor('waiter')).toContain('items')
+    expect(settingsFor('waiter').map(l => l.label)).toEqual(['Thực đơn'])
+    // a cashier without order.take lands on Thu ngân and has no floor
+    expect(canOpen('cashier', ['ban'])).toBe(false)
+    expect(homeRoute('cashier')).toBe('thu-ngan')
+    // nothing at all: the usual screen (blocked) rather than nowhere
+    setPermMatrix({ ...DEFAULT_PERMS, waiter: [] })
+    expect(homeRoute('waiter')).toBe('ban')
+    expect(canOpen('waiter', ['ban'])).toBe(false)
+    // Nhân viên tabs: Phân quyền only for the owner
+    expect(staffTabsFor('owner')).toEqual(['', 'quyen', 'may', 'caidat', 'nhatky'])
+    expect(staffTabsFor('manager')).toEqual(['', 'may', 'caidat', 'nhatky'])
+    expect(staffTabsFor('waiter')).toEqual([])
+  })
+
+  it('only the owner saves; unknown permissions are refused; changes are audited', async () => {
+    const repo = createMemoryAuthRepo({})
+    await signedIn(repo, 's-ha', '1397')
+    await expect(repo.savePermissions('waiter', ['pay.collect'])).rejects.toThrow('Chỉ chủ quán được phân quyền')
+    await signedIn(repo, 's-owner', '2468')
+    await expect(repo.savePermissions('waiter', ['steal.money' as Perm])).rejects.toThrow('Quyền không hợp lệ')
+    expect(await repo.savePermissions('waiter', ['pay.collect', 'order.take'])).toEqual(['order.take', 'pay.collect'])
+    expect((await repo.permissions()).waiter).toEqual(['order.take', 'pay.collect'])
+    await repo.savePermissions('waiter', ['pay.collect', 'order.take'])
+    const log = (await repo.audit()).filter(a => a.action === 'permissions')
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatchObject({ staff: 'Chủ quán', detail: { role: 'waiter', added: ['pay.collect'], removed: [] } })
+  })
+
+  it('staff.manage and the kitchen display follow the table', async () => {
+    const repo = createMemoryAuthRepo({})
+    await signedIn(repo, 's-owner', '2468')
+    await repo.savePermissions('cashier', ['pay.collect', 'staff.manage', 'kitchen.work'])
+    await repo.savePermissions('manager', PERMS.filter(p => p !== 'staff.manage'))
+    await signedIn(repo, 's-lan', '3690')
+    expect((await repo.listStaff()).length).toBeGreaterThan(0)
+    await repo.saveStaff({ name: 'Tý', role: 'waiter', pin: '7531' })
+    await expect(repo.saveStaff({ name: 'Minh', role: 'manager', pin: '8642' })).rejects.toThrow('Chỉ chủ quán')
+    await expect(repo.audit()).rejects.toThrow('Chưa có quyền: Xem nhật ký')
+    await signedIn(repo, 's-ha', '1397')
+    await expect(repo.listStaff()).rejects.toThrow('Chưa có quyền: Quản lý nhân viên')
+  })
+
+  it('a kitchen display lists whoever has kitchen.work', async () => {
+    const kds = createMemoryAuthRepo({ device: { name: 'Màn bếp', kind: 'kitchen' } })
+    expect((await kds.roster()).map(r => r.name)).toEqual(['Bếp nướng', 'Quầy bar', 'Quản lý Hà', 'Chủ quán'])
+    await signedIn(kds, 's-owner', '2468')
+    await kds.savePermissions('cashier', ['kitchen.work'])
+    expect((await kds.roster()).map(r => r.name)).toContain('Lan')
+    expect((await kds.signIn('s-lan', '3690')).ok).toBe(true)
+  })
+
+  it('the floor engine and approvals follow the table', async () => {
+    const { auth, floor, as } = await floorWithAuth()
+    await as('s-owner', '2468')
+    await auth.savePermissions('waiter', ['order.take', 'pay.collect', 'order.void_sent'])
+    await auth.savePermissions('manager', PERMS.filter(p => p !== 'order.void_sent'))
+    setPermMatrix(await auth.permissions())
+    await as('s-hung', '2580')
+    const orderId = await floor.openTable({ tableId: 't-5', guestCount: 2 })
+    await floor.sendLines(orderId, [steak], 'b1', {})
+    const line = (await floor.load()).lines.find(l => l.orderId === orderId)!
+    // the waiter voids a sent dish without anyone's PIN, and may open the payment
+    await floor.voidLine(line.id, { qty: 1, reason: 'Khách đổi ý' })
+    await floor.beginPayment(orderId)
+    expect(E.needsManagerForDiscount('waiter', 10_000)).toBe(true)
+    // the manager without order.void_sent cannot approve a void; a waiter (who has it) can
+    expect(await auth.verifyManagerPin('s-ha', '1397', { action: 'void_item', orderId, lineId: line.id })).toMatchObject({ ok: false, error: 'Người này chưa có quyền duyệt việc này' })
+    expect((await auth.verifyManagerPin('s-mai', '3691', { action: 'void_item', orderId, lineId: line.id })).ok).toBe(true)
+    // take order.take away: the waiter cannot open a table any more
+    await as('s-owner', '2468')
+    await auth.savePermissions('waiter', [])
+    setPermMatrix(await auth.permissions())
+    await as('s-hung', '2580')
+    await expect(floor.openTable({ tableId: 't-6', guestCount: 2 })).rejects.toThrow('Chưa có quyền: Mở bàn, gọi món, gửi bếp')
+  })
+})
+
+describe('xoá vĩnh viễn nhân viên và máy (memory engine)', () => {
+  it('the owner deletes a person or another device; never oneself, the device in use, or (for a manager) an owner', async () => {
+    const repo = createMemoryAuthRepo({})
+    await signedIn(repo, 's-ha', '1397')
+    await expect(repo.adminDelete('staff', 's-hung')).rejects.toThrow('Chưa có quyền: Xoá vĩnh viễn')
+    await signedIn(repo, 's-owner', '2468')
+    await expect(repo.adminDelete('staff', 's-owner')).rejects.toThrow('Không tự xoá tài khoản của mình')
+    const me = (await repo.device())!
+    await expect(repo.adminDelete('device', me.id)).rejects.toThrow('Đang dùng máy này')
+    await repo.adminDelete('staff', 's-hung')
+    expect((await repo.listStaff()).some(x => x.id === 's-hung')).toBe(false)
+    expect((await repo.roster()).some(x => x.id === 's-hung')).toBe(false)
+    expect((await repo.audit())[0]).toMatchObject({ action: 'delete', detail: { kind: 'staff', name: 'Hùng' } })
+    await repo.savePermissions('manager', [...PERMS])
+    await signedIn(repo, 's-ha', '1397')
+    await expect(repo.adminDelete('staff', 's-owner')).rejects.toThrow('Chỉ chủ quán được xoá')
+    await repo.adminDelete('staff', 's-mai')
+    expect((await repo.listStaff()).some(x => x.id === 's-mai')).toBe(false)
   })
 })

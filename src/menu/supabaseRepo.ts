@@ -4,7 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { MenuRepo } from './repo'
-import type { Category, Menu, MenuItem, ModifierGroup } from './types'
+import type { Category, Menu, MenuItem, ModifierGroup, Station } from './types'
 
 // realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
 let channelNo = 0
@@ -56,7 +56,10 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
         businessDayStart: s(shop[0]?.business_day_start || '06:00').slice(0, 5),
         minPriceRatio: shop[0]?.min_price_ratio == null ? 0.5 : n(shop[0].min_price_ratio),
       },
-      stations: stations.map(r => ({ id: s(r.id), code: s(r.code), name: s(r.name), kind: r.kind as Menu['stations'][number]['kind'] })),
+      stations: stations.map(r => ({
+        id: s(r.id), code: s(r.code), name: s(r.name), kind: r.kind as Station['kind'], sort: n(r.sort),
+        warnMin: n(r.sla_warn_min ?? 10), lateMin: n(r.sla_late_min ?? 15),
+      })),
       vatGroups: vatGroups.map(r => ({ code: s(r.code), name: s(r.name), rate: rateOf(s(r.code)) })),
       categories: cats.map(r => ({
         id: s(r.id), parentId: sn(r.parent_id), name: s(r.name), sort: n(r.sort), color: s(r.color), visible: r.visible !== false,
@@ -64,7 +67,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
       })),
       groups: groups.map(g => ({
         id: s(g.id), name: s(g.name), kind: g.kind as ModifierGroup['kind'], minSelect: n(g.min_select), maxSelect: nn(g.max_select),
-        printReceipt: g.print_receipt as ModifierGroup['printReceipt'], sort: n(g.sort),
+        printReceipt: g.print_receipt as ModifierGroup['printReceipt'], stationId: sn(g.station_id), sort: n(g.sort),
         options: options.filter(o => o.group_id === g.id).map(o => ({
           id: s(o.id), groupId: s(o.group_id), name: s(o.name), kitchenName: s(o.kitchen_name), priceDelta: n(o.price_delta),
           maxQty: n(o.max_qty), isDefault: o.is_default === true, sort: n(o.sort), soldOutUntil: sn(o.sold_out_until),
@@ -81,7 +84,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
         })),
         components: comps.filter(c => c.item_id === r.id).map(c => ({
           id: s(c.id), name: s(c.name), kitchenName: s(c.kitchen_name), qty: n(c.qty), unit: s(c.unit), removable: c.removable === true,
-          removalDiscount: n(c.removal_discount), addonOptionId: sn(c.addon_option_id), sort: n(c.sort), soldOutUntil: sn(c.sold_out_until),
+          removalDiscount: n(c.removal_discount), addonOptionId: sn(c.addon_option_id), stationId: sn(c.station_id), sort: n(c.sort), soldOutUntil: sn(c.sold_out_until),
         })),
         groups: links.filter(l => l.item_id === r.id).map(l => ({
           groupId: s(l.group_id), sort: n(l.sort), minOverride: nn(l.min_override), maxOverride: nn(l.max_override),
@@ -149,7 +152,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
       if (it.components.length) {
         await ok(db.from('item_components').upsert(it.components.map(c => ({
           id: c.id, item_id: it.id, name: c.name.trim(), kitchen_name: c.kitchenName.trim(), qty: c.qty, unit: c.unit,
-          removable: c.removable, removal_discount: c.removable ? c.removalDiscount : 0, addon_option_id: c.addonOptionId, sort: c.sort,
+          removable: c.removable, removal_discount: c.removable ? c.removalDiscount : 0, addon_option_id: c.addonOptionId, station_id: c.stationId, sort: c.sort,
         }))))
       }
       await ok(db.from('item_modifier_groups').delete().eq('item_id', it.id))
@@ -167,7 +170,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     },
     async saveGroup(g) {
       await ok(db.from('modifier_groups').upsert({
-        id: g.id, name: g.name.trim(), kind: g.kind, min_select: g.minSelect, max_select: g.maxSelect, print_receipt: g.printReceipt, sort: g.sort,
+        id: g.id, name: g.name.trim(), kind: g.kind, min_select: g.minSelect, max_select: g.maxSelect, print_receipt: g.printReceipt, station_id: g.stationId, sort: g.sort,
       }))
       const old = await rows(db.from('modifier_options').select('id').eq('group_id', g.id).is('archived_at', null))
       const keep = new Set(g.options.map(o => o.id))
@@ -179,6 +182,26 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
           max_qty: g.kind === 'choice' ? 1 : o.maxQty, is_default: o.isDefault, sort: o.sort,
         }))))
       }
+    },
+    async saveStation(st) {
+      await ok(db.from('stations').upsert({
+        id: st.id, code: st.code.trim(), name: st.name.trim(), kind: st.kind, sort: st.sort, active: true,
+        sla_warn_min: st.warnMin, sla_late_min: st.lateMin,
+      }))
+    },
+    async deleteStation(id) {
+      const { error } = await db.from('stations').delete().eq('id', id)
+      if (!error) return
+      // old orders and kitchen notices still point at it: hide it instead (load reads active stations only)
+      if (error.code === '23503') return ok(db.from('stations').update({ active: false }).eq('id', id))
+      throw new Error(error.message)
+    },
+    async reorderStations(ids) {
+      await Promise.all(ids.map((id, i) => ok(db.from('stations').update({ sort: i + 1 }).eq('id', id))))
+    },
+    async adminDelete(kind, id) {
+      const { error } = await db.rpc('admin_delete', { p_kind: kind, p_id: id })
+      if (error) throw new Error(error.message)
     },
     async setSoldOut(kind, id, mode) {
       const { data, error } = await db.rpc('set_sold_out', { p_kind: kind, p_id: id, p_mode: mode })

@@ -1,4 +1,5 @@
-// Nothing opens until this device is registered and someone signed in with their PIN. Then: route guards by role,
+// Nothing opens until this device is registered and someone signed in with their PIN. Then: route guards by the
+// permissions the owner gave each role (loaded here, kept live),
 // idle sign-out (not for kitchen accounts), and the manager-approval prompt for the screens below.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -9,6 +10,7 @@ import { ApprovalDialog } from './ApprovalDialog'
 import { AuthContext, type ApprovalPrompt, type Approved, type AuthValue } from './context'
 import { canOpen, homeRoute } from './guards'
 import { isIdle, shouldTouch } from './idle'
+import { permMatrix, roleCan, setPermMatrix, type PermMatrix } from './permissions'
 import type { AuthRepo } from './repo'
 import { BlockedScreen, DeviceSetup, SignInScreen } from './screens'
 import { DEFAULT_AUTH_SETTINGS, type AuthSettings, type Device, type Session } from './types'
@@ -20,20 +22,33 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
   const [device, setDevice] = useState<Device | null>(null)
   const [settings, setSettings] = useState<AuthSettings>(DEFAULT_AUTH_SETTINGS)
+  const [perms, setPerms] = useState<PermMatrix>(permMatrix)
   const [notice, setNotice] = useState('')
   const [prompt, setPrompt] = useState<{ p: ApprovalPrompt; resolve: (a: Approved | null) => void } | null>(null)
   const route = useRoute()
   const lastActivity = useRef(Date.now())
   const lastTouch = useRef(Date.now())
 
+  // the shop's permission table: the guards and the sample engine read it through setPermMatrix
+  const loadPerms = useCallback(
+    () =>
+      repo.permissions().then(m => {
+        setPermMatrix(m)
+        setPerms(m)
+        return m
+      }),
+    [repo],
+  )
   const enter = useCallback((s: Session, fresh: boolean) => {
     floorSession.actor = { name: s.name, role: s.role }
     lastActivity.current = Date.now()
     lastTouch.current = Date.now()
     setNotice('')
     setPhase({ kind: 'in', session: s })
-    if (fresh) go(homeRouteFor(s))
-  }, [])
+    // land on a screen this person may open with the current permissions
+    const land = () => fresh && go(homeRouteFor(s))
+    loadPerms().then(land, land)
+  }, [loadPerms])
   const leave = useCallback((why = '') => {
     setNotice(why)
     setPrompt(p => {
@@ -81,8 +96,9 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
         if (!s) leave('Phiên đăng nhập đã kết thúc (quản lý đổi PIN, khoá tài khoản hoặc khoá máy).')
       }, () => undefined)
       repo.settings().then(setSettings, () => undefined)
+      loadPerms().catch(() => undefined)
     })
-  }, [repo, signedIn, leave])
+  }, [repo, signedIn, leave, loadPerms])
 
   // idle sign-out and server keep-alive
   const role = phase.kind === 'in' ? phase.session.role : null
@@ -111,8 +127,11 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
 
   const requestApproval = useCallback((p: ApprovalPrompt) => new Promise<Approved | null>(resolve => setPrompt({ p, resolve })), [])
   const value = useMemo<AuthValue | null>(
-    () => (phase.kind === 'in' && device ? { repo, session: phase.session, device, settings, signOut, requestApproval } : null),
-    [phase, device, repo, settings, signOut, requestApproval],
+    () =>
+      phase.kind === 'in' && device
+        ? { repo, session: phase.session, device, settings, perms, can: p => roleCan(phase.session.role, p, perms), signOut, requestApproval }
+        : null,
+    [phase, device, repo, settings, perms, signOut, requestApproval],
   )
 
   if (phase.kind === 'loading') return <p className="auth-loading">Đang kết nối…</p>

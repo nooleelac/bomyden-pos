@@ -11,7 +11,8 @@ import { CashierApp } from './cashier/CashierApp'
 import { FloorApp } from './floor/FloorApp'
 import { peekSource, ReposContext, session, useRoute } from './floor/hooks'
 import { createMemoryFloorRepo, type FloorRepo } from './floor/repo'
-import { sampleEvening } from './floor/seed'
+import { sampleBillHistory, sampleEvening } from './floor/seed'
+import type { BillHistory } from './floor/types'
 import { MenuApp } from './menu/MenuApp'
 import { SettingsApp } from './settings/SettingsApp'
 import { createMemoryMenuRepo, type MenuRepo } from './menu/repo'
@@ -33,6 +34,7 @@ const authFromDb = (env.VITE_AUTH_SOURCE === 'supabase' || menuFromDb || floorFr
 // screens only some roles open load on demand
 const StaffApp = lazy(() => import('./auth/StaffApp').then(m => ({ default: m.StaffApp })))
 const KitchenApp = lazy(() => import('./kitchen/KitchenApp').then(m => ({ default: m.KitchenApp })))
+const ReportsApp = lazy(() => import('./reports/ReportsApp').then(m => ({ default: m.ReportsApp })))
 
 interface Repos {
   menu: MenuRepo
@@ -57,12 +59,14 @@ async function connect(): Promise<Repos> {
 function sampleFloorRepo(menu: MenuRepo, auth: MemoryAuthRepo | null): FloorRepo {
   // The sample evening is priced from the sample menu (prices are examples only).
   const evening = () => sampleEvening(seedMenu())
+  let history: BillHistory | undefined
   return createMemoryFloorRepo({
     menu: () => menu.load(),
     actor: () => session.actor,
     // manager approvals of the sample floor are checked by the sample staff list (database approvals by the RPCs)
     approve: auth ? (token, need) => auth.consumeApproval(token, need) : undefined,
     initial: evening(),
+    history: () => (history ??= sampleBillHistory(seedMenu())),
     sync: { channel: 'bmd-floor', storageKey: 'bmd-floor-v2', reset: evening },
   })
 }
@@ -75,6 +79,7 @@ function Screens(props: { repos: Repos }) {
   if (top === 'bep') return <KitchenApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === 'nhan-vien') return <StaffApp />
   if (top === 'cai-dat') return <SettingsApp />
+  if (top === 'hoa-don' || top === 'doanh-thu') return <ReportsApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === 'thu-ngan' || top === 'ca') return <CashierApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === '' || top === 'ban' || top === 'don') return <FloorApp floorRepo={repos.floor} menuRepo={repos.menu} />
   return <MenuApp repo={repos.menu} role={me.role} />

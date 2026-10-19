@@ -4,8 +4,9 @@ import { billTotals, vatRateOn } from '../lib/pricing'
 import { seedMenu } from '../menu/seed'
 import * as E from '../floor/engine'
 import { sampleEvening, seedFloor } from '../floor/seed'
+import { tableState } from '../floor/logic'
 import type { Actor, FloorState, SendLineInput } from '../floor/types'
-import { billData, orderCode, payMemo, prebillData, receiptTableTitle } from './bill'
+import { billData, orderCode, payMemo, prebillData, receiptTableTitle, vietQr } from './bill'
 import { BIG_WIDTH, WIDTH, blocksText, center, itemLines, receiptBlocks, row, shiftReportBlocks, textWidth, wrap, type Block, type ReceiptData } from './receipt'
 import { countedTotal, shiftSummary } from './shift'
 import { SAMPLE_SHOP } from './config'
@@ -131,13 +132,13 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
     expect(() => E.payOrder(s, id, pay, cashier)).toThrow('Chưa mở ca')
     s = E.openShift(s, { openingFloat: 1500000 }, cashier).state
     expect(() => E.openShift(s, { openingFloat: 0 }, cashier)).toThrow('đang có ca mở')
-    expect(() => E.payOrder(s, id, pay, waiter)).toThrow('Chỉ thu ngân')
+    expect(() => E.payOrder(s, id, pay, waiter)).toThrow('Chưa có quyền: Thu tiền')
     const r = E.payOrder(s, id, pay, cashier)
     const bill = r.state.bills.find(b => b.id === r.billId)!
     expect(bill).toMatchObject({ billNo: 'HD000001', tableLabel: '9', subtotal: 296000, total: 296000, cashier: 'Lan', printCount: 0 })
     expect(bill.payments.map(p => [p.method, p.amount, p.tendered])).toEqual([['bank', 200000, null], ['cash', 96000, 100000]])
     expect(r.state.orders.find(o => o.id === id)).toMatchObject({ status: 'paid', payingAt: null })
-    expect(r.state.tables.find(t => t.id === 't-9')!.needsCleaning).toBe(true)
+    expect(tableState(r.state, r.state.tables.find(t => t.id === 't-9')!)).toBe('free')
   })
 
   it('refuses short, over and non-cash overpayment', () => {
@@ -430,5 +431,27 @@ describe('receipt data from the floor', () => {
     expect(receiptTableTitle('nhóm gộp 3+4+5')).toBe('Bàn 3 + 4 + 5 (gộp)')
     expect(receiptTableTitle('MV-02')).toBe('MV-02')
     expect(formatMoney(-1274000)).toBe('-1.274.000')
+  })
+})
+
+describe('cài đặt thanh toán trên hoá đơn', () => {
+  const vat = [{ vatRate: 8, priceIncludesVat: true, base: 403704, vat: 32296 }]
+  const data: ReceiptData = {
+    kind: 'bill', shop: SAMPLE_SHOP, billNo: 'HD000001', tableLabel: 'Bàn 1', openedAt: '2026-10-17T12:00:00Z', at: '2026-10-17T13:00:00Z',
+    groups: [], subtotal: 436000, discount: 0, serviceCharge: 0, rounding: 0, total: 436000, vat,
+  }
+  it('prints VAT lines unless the shop hides them', () => {
+    expect(blocksText(receiptBlocks(data))).toContain('Thuế GTGT 8%')
+    expect(blocksText(receiptBlocks({ ...data, shop: { ...SAMPLE_SHOP, showVat: false } }))).not.toContain('Thuế')
+  })
+  it('keeps VAT added on top (the total needs it), without the rate', () => {
+    const added = { ...data, total: 470880, vat: [{ vatRate: 8, priceIncludesVat: false, base: 436000, vat: 34880 }], shop: { ...SAMPLE_SHOP, showVat: false } }
+    const txt = blocksText(receiptBlocks(added))
+    expect(txt).toContain('Thuế')
+    expect(txt).not.toContain('GTGT')
+  })
+  it('no VietQR when the shop takes no transfers', () => {
+    expect(vietQr(SAMPLE_SHOP, 1000, 'X')).not.toBeNull()
+    expect(vietQr({ ...SAMPLE_SHOP, payMethods: { cash: true, bank: false, card: true } }, 1000, 'X')).toBeNull()
   })
 })

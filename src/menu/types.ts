@@ -2,11 +2,21 @@
 // Money is whole VND. `soldOutUntil`: null = selling, ISO time = back at that time, 'infinity' = until reopened.
 
 export type StationKind = 'kitchen' | 'bar' | 'none'
+export const STATION_KIND_LABEL: Record<StationKind, string> = {
+  kitchen: 'Bếp',
+  bar: 'Bar',
+  none: 'Không qua bếp',
+}
 export interface Station {
   id: string
+  /** Lower-case, used in the kitchen screen link #/bep/<code>. */
   code: string
   name: string
   kind: StationKind
+  sort: number
+  /** Minutes before a ticket turns yellow / red on the kitchen screen. */
+  warnMin: number
+  lateMin: number
 }
 
 export interface VatGroup {
@@ -61,6 +71,8 @@ export interface Component {
   removalDiscount: number
   /** The matching "Thêm trứng" add-on, to refuse "Không trứng" + "Thêm trứng" on one portion. */
   addonOptionId: string | null
+  /** Quầy làm: null = the dish's station. Another station gets its own ticket for this part (salad, sốt, bánh mì). */
+  stationId: string | null
   sort: number
   soldOutUntil: string | null
 }
@@ -89,6 +101,11 @@ export interface ModifierGroup {
   /** null = no limit */
   maxSelect: number | null
   printReceipt: ReceiptPrint
+  /**
+   * Quầy làm for the choices of this group ("Nước sốt" at the cold counter): null = the dish's station. An add-on
+   * linked to a component ("Thêm bánh mì" ↔ Bánh mì) goes where that component is made.
+   */
+  stationId: string | null
   sort: number
   options: ModifierOption[]
 }

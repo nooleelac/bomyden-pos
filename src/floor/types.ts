@@ -22,8 +22,6 @@ export interface Table {
   active: boolean
   /** Bàn tạm (kê thêm) */
   temporary: boolean
-  /** Paid and waiting for "Dọn xong" (only when the shop turns cleaning on). */
-  needsCleaning: boolean
 }
 
 export type OrderStatus = 'open' | 'paid' | 'void' | 'merged'
@@ -88,6 +86,24 @@ export interface LineMod {
   qty: number
   /** Per unit, signed (removals negative). */
   unitDelta: number
+  /** Quầy làm when not the line's own station (sốt at the cold counter); null or absent = the line's station. */
+  stationId?: string | null
+}
+
+/**
+ * Phần đi kèm (0012 order_items.side_parts): the part of a dish made at another station than the dish, with its own
+ * kitchen state. Beefsteak at Bếp nóng: one side part at Quầy rau with SALAD, BÁNH MÌ and the sốt option.
+ * The bill never sees it; it travels with the line through tách, gộp, chuyển and huỷ.
+ */
+export interface SidePart {
+  stationId: string
+  /** Components made there, ticket text per portion ("SALAD", "BÁNH MÌ x2"). */
+  parts: string[]
+  /** new | cooking | ready | served */
+  status: LineStatus
+  startedAt: string | null
+  readyAt: string | null
+  servedAt: string | null
 }
 
 /** A line sent to the kitchen. Price and snapshots are locked at Gửi bếp. */
@@ -109,6 +125,8 @@ export interface Line {
   status: LineStatus
   note: string
   mods: LineMod[]
+  /** Parts made at other stations; [] for a dish made in one place. */
+  sideParts: SidePart[]
   /** Where the guest sits; kitchen prints it big. */
   deliveryTableId: string | null
   round: number
@@ -179,8 +197,6 @@ export interface StationTiming {
 export interface FloorSettings {
   maxOrdersPerTable: number
   maxMergeTables: number
-  /** Paid tables go to Chờ dọn until "Dọn xong". */
-  requireCleaning: boolean
   /** Waiters see amounts on the floor map. */
   waiterSeesAmounts: boolean
   /** By station id. */
@@ -221,14 +237,13 @@ export interface SendLineInput {
   delivery_table_id?: string
 }
 
-export type TableState = 'free' | 'occupied' | 'bill' | 'paying' | 'cleaning' | 'closed'
+export type TableState = 'free' | 'occupied' | 'bill' | 'paying' | 'closed'
 
 export const TABLE_STATE_LABEL: Record<TableState, string> = {
   free: 'Trống',
   occupied: 'Đang ngồi',
   bill: 'Chờ thanh toán',
   paying: 'Đang thanh toán',
-  cleaning: 'Chờ dọn',
   closed: 'Khu tạm đóng',
 }
 
@@ -287,6 +302,21 @@ export interface Bill {
   lastPrintBy: string
 }
 
+/** A dish of a settled bill as the reports see it (Hoá đơn, Doanh thu). amount = unit price × qty. */
+export interface SoldLine {
+  orderId: string
+  name: string
+  variantName: string
+  qty: number
+  amount: number
+}
+
+/** Bills paid in a time range with their dishes (the floor state keeps only the last hours). */
+export interface BillHistory {
+  bills: Bill[]
+  lines: SoldLine[]
+}
+
 /** Ca thu ngân: one open shift per register; cash needs an open shift. */
 export interface Shift {
   id: string
@@ -321,4 +351,17 @@ export interface ShopProfile {
   serviceChargePct: number
   roundingMode: RoundingMode
   roundingUnit: number
+  /** Cài đặt → Thanh toán: payment methods the cashier may take (missing = all three). */
+  payMethods?: Record<PayMethod, boolean>
+  /** One VAT % for every dish sent from now on; null/missing = by menu group (8% món ăn, 10% bia rượu). */
+  vatRate?: number | null
+  /** Print the VAT lines on bills and pre-bills (missing = yes). */
+  showVat?: boolean
+}
+
+/** Cài đặt → Thanh toán, saved with saveShop. */
+export type PaymentSettings = Pick<ShopProfile, 'bankBin' | 'bankName' | 'bankAccount' | 'bankAccountName'> & {
+  payMethods: Record<PayMethod, boolean>
+  vatRate: number | null
+  showVat: boolean
 }

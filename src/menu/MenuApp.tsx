@@ -1,9 +1,10 @@
-// Menu module shell: tabs by the signed-in role (menu admin for managers only), live reload, sample-data banner.
-// Routes (hash): #/order  #/categories  #/items  #/items/<id>  #/groups  #/soldout
+// Menu module shell: tabs by the signed-in person's permissions (menu admin with menu.edit), live reload, sample-data banner.
+// Routes (hash): #/order  #/categories  #/items  #/items/<id>  #/groups  #/stations  #/soldout
 
 import { useCallback, useEffect, useState } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
 import { menuTabsFor } from '../auth/guards'
+import { roleCan } from '../auth/permissions'
 import type { Role } from '../floor/types'
 import '../floor/floor.css'
 import { blankItem, type MenuRepo } from './repo'
@@ -14,14 +15,16 @@ import { ItemEditor } from './screens/ItemEditor'
 import { ItemsScreen } from './screens/ItemsScreen'
 import { OrderScreen } from './screens/OrderScreen'
 import { SoldOutScreen } from './screens/SoldOutScreen'
+import { StationsScreen } from './screens/StationsScreen'
 import './menu.css'
 
-type Tab = 'order' | 'categories' | 'items' | 'groups' | 'soldout'
+type Tab = 'order' | 'categories' | 'items' | 'groups' | 'stations' | 'soldout'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'order', label: 'Gọi món' },
   { id: 'categories', label: 'Nhóm món' },
   { id: 'items', label: 'Món' },
   { id: 'groups', label: 'Tuỳ chọn' },
+  { id: 'stations', label: 'Khu bếp' },
   { id: 'soldout', label: 'Hết món' },
 ]
 
@@ -69,6 +72,7 @@ export function MenuApp(props: { repo: MenuRepo; role: Role }) {
   }
   const onError = (m: string) => setToast(m)
   const allowed = menuTabsFor(role)
+  const purge = roleCan(role, 'admin.delete')
   const tabs = TABS.filter(t => allowed.includes(t.id))
   const tab = tabs.some(t => t.id === route.tab) ? route.tab : (tabs[0]?.id ?? 'soldout')
 
@@ -95,7 +99,7 @@ export function MenuApp(props: { repo: MenuRepo; role: Role }) {
             <OrderScreen menu={menu} now={now} />
           </div>
         )}
-        {tab === 'categories' && <CategoriesScreen menu={menu} repo={repo} onError={onError} />}
+        {tab === 'categories' && <CategoriesScreen menu={menu} repo={repo} purge={purge} onError={onError} />}
         {tab === 'items' && !route.itemId && (
           <ItemsScreen
             menu={menu}
@@ -114,11 +118,13 @@ export function MenuApp(props: { repo: MenuRepo; role: Role }) {
             value={editing ?? blankItem(menu, menu.categories[0]?.id ?? '')}
             onSave={i => repo.saveItem(i)}
             onDelete={id => repo.deleteItem(id).then(() => go('items'), e => onError(String(e)))}
+            onPurge={purge ? id => repo.adminDelete('item', id).then(() => go('items'), e => onError(e instanceof Error ? e.message : String(e))) : undefined}
             onClose={() => go('items')}
           />
         )}
-        {tab === 'groups' && <GroupsScreen menu={menu} repo={repo} onError={onError} />}
-        {tab === 'soldout' && <SoldOutScreen menu={menu} repo={repo} now={now} canEdit={role !== 'waiter'} onError={onError} />}
+        {tab === 'groups' && <GroupsScreen menu={menu} repo={repo} purge={purge} onError={onError} />}
+        {tab === 'stations' && <StationsScreen menu={menu} repo={repo} onError={onError} />}
+        {tab === 'soldout' && <SoldOutScreen menu={menu} repo={repo} now={now} canEdit={roleCan(role, 'menu.soldout')} onError={onError} />}
       </main>
       {toast && (
         <div className="toast" role="alert" onClick={() => setToast(null)}>

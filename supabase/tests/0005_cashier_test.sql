@@ -62,7 +62,7 @@ select id as o9 from open_table(:'t9', 4) \gset
 select count(*) as sent from send_order_lines(:'o9', jsonb_build_array(:'steak200'::jsonb, :'beer4'::jsonb));
 select t_ok((select array_agg(price::text || '/' || vat_rate || '/' || discountable order by vat_rate) from order_items where order_id = :'o9')
             = '{196000/8/true,25000/10/false}', 'VAT and discountable snapshotted at send: steak 8%, beer 10% not discountable') as check;
-select t_err(format('select pay_order(%L, 0, %L::jsonb)', :'o9', '[{"method":"cash","amount":296000}]'), 'Chỉ thu ngân%', 'a waiter cannot take payment') as check;
+select t_err(format('select pay_order(%L, 0, %L::jsonb)', :'o9', '[{"method":"cash","amount":296000}]'), 'Chưa có quyền%', 'a waiter cannot take payment') as check;
 
 set test.uid = :'C';
 select t_err(format('select pay_order(%L, 0, %L::jsonb)', :'o9', '[{"method":"cash","amount":296000}]'), 'Chưa mở ca%', 'no payment before the shift is opened') as check;
@@ -103,7 +103,7 @@ select t_ok(:'b9_in_shift'::boolean and :'b9_discount_reason' = 'Khách quen' an
 select t_ok((select array_agg(method || ':' || amount || ':' || coalesce(tendered::text, '-') || ':' || ref order by method) from payments where bill_id = :'b9')
             = '{cash:76000:100000:,bank:200000:-:FT123}', 'payment rows: cash keeps what was handed over, bank its reference') as check;
 select t_ok((select status = 'paid' and paying_at is null and paying_by is null from orders where id = :'o9'), 'order paid, payment lock released') as check;
-select t_ok((select needs_cleaning from tables where id = :'t9'), 'table waits for Dọn xong') as check;
+select t_ok((select not needs_cleaning from tables where id = :'t9'), 'table free as soon as it is paid') as check;
 set test.uid = :'M';   -- audit_log is readable by managers only
 select t_ok((select detail ->> 'reason' from audit_log where action = 'discount' order by id desc limit 1) = 'Khách quen', 'discount logged with its reason') as check;
 set test.uid = :'C';
@@ -115,7 +115,7 @@ select print_bill(:'b9') as p2 \gset
 set test.uid = :'M';
 select t_ok(:p1 = 1 and :p2 = 2 and (select count(*) from audit_log where action = 'reprint') = 1, 'print_bill counts prints, logs the reprint') as check;
 set test.uid = :'W';
-select t_err(format('select print_bill(%L)', :'b9'), 'Chỉ thu ngân%', 'waiters do not print bills') as check;
+select t_err(format('select print_bill(%L)', :'b9'), 'Chưa có quyền%', 'waiters do not print bills') as check;
 select t_err(format('update bills set total = 1 where id = %L', :'b9'), 'permission denied%', 'bills cannot be edited directly (0006: no update grant)') as check;
 set test.uid = :'C';
 select t_ok((select total from bills where id = :'b9') = 276000, 'bill unchanged') as check;

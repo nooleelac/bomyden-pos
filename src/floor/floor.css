@@ -5,7 +5,6 @@
   --st-occupied: #0a84ff;
   --st-bill: #ff8a00;
   --st-paying: #8b5cf6;
-  --st-cleaning: #9aa6bd;
   --st-closed: #d6dcea;
   --late: #e5383b;
   --warnc: #f9a825;
@@ -17,7 +16,7 @@
 .topbar > .brand { flex: 1; text-align: center; }
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; justify-content: space-around; gap: 4px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line);
+  padding: 6px 8px max(12px, calc(6px + env(safe-area-inset-bottom))); background: var(--surface); border-top: 1px solid var(--line);
   box-shadow: 0 -2px 10px rgba(42, 58, 92, .06);
 }
 .bottom-nav a {
@@ -80,7 +79,6 @@
 .table-tile.st-occupied { background: var(--st-occupied); color: #fff; }
 .table-tile.st-bill { background: var(--st-bill); color: #fff; }
 .table-tile.st-paying { background: var(--st-paying); color: #fff; }
-.table-tile.st-cleaning { background: var(--st-cleaning); color: #fff; outline: 2px dashed rgba(255,255,255,.7); outline-offset: -6px; }
 .table-tile.st-closed { background: var(--st-closed); color: var(--muted); }
 .table-tile:not(.st-free):not(.st-closed) .tile-name { border-color: rgba(255,255,255,.45); }
 .tile-info { font-size: 12px; opacity: .92; }
@@ -146,6 +144,8 @@
 .warn-text { color: var(--warn); font-weight: 600; }
 .ls-void .sent-main b { text-decoration: line-through; color: var(--danger); }
 .ls-served .sent-main { opacity: .65; }
+.side-parts { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.side-part { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--muted); }
 .ls-badge.ls-new { background: #e0e0e0; color: #424242; }
 .ls-badge.ls-cooking { background: #1565c0; color: #fff; }
 .ls-badge.ls-ready { background: #2e7d32; color: #fff; }
@@ -166,19 +166,19 @@
 .rail-icon { font-size: 22px; line-height: 1.1; }
 
 /* #/don: wide order cards (Sapo style) */
-.order-cards { list-style: none; margin: 0; padding: 0 0 80px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.order-cards { list-style: none; margin: 0; padding: 0 0 80px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 @media (min-width: 900px) { .order-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.order-card { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); color: var(--text); text-decoration: none; overflow: hidden; border-top: 5px solid var(--st-occupied); }
+.order-card { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); color: var(--text); text-decoration: none; overflow: hidden; border-top: 3px solid var(--st-occupied); }
 .order-card.st-bill { border-top-color: var(--st-bill); }
 .order-card.st-paying { border-top-color: var(--st-paying); }
-.order-card-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px dashed var(--line); color: var(--slate); font-size: 16px; }
-.order-card-tag { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px 8px 8px 0; background: var(--st-occupied); font-size: 18px; }
+.order-card-head { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-bottom: 1px dashed var(--line); color: var(--slate); font-size: 13px; font-weight: 600; }
+.order-card-tag { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px 5px 5px 0; background: var(--st-occupied); font-size: 12px; }
 .st-bill .order-card-tag { background: var(--st-bill); }
 .st-paying .order-card-tag { background: var(--st-paying); }
-.order-card-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: stretch; min-height: 96px; }
-.order-card-table { display: grid; place-items: center; font-size: 30px; font-weight: 800; color: var(--text); border-right: 1px solid var(--line); padding: 8px; text-align: center; }
-.order-card-side { display: flex; flex-direction: column; justify-content: center; }
-.order-card-side > span { padding: 10px 14px; font-size: 16px; color: var(--slate); }
+.order-card-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: stretch; min-height: 48px; }
+.order-card-table { display: grid; place-items: center; font-size: 22px; font-weight: 800; color: var(--text); border-right: 1px solid var(--line); padding: 2px 6px; text-align: center; overflow-wrap: anywhere; }
+.order-card-side { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.order-card-side > span { padding: 3px 10px; font-size: 14px; color: var(--slate); }
 .order-card-side > span + span { border-top: 1px solid var(--line); }
 .fab {
   position: fixed; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 8; display: inline-flex; align-items: center; gap: 6px;
@@ -213,6 +213,7 @@
 @keyframes bell-in { from { transform: translateY(-8px); opacity: 0; } }
 .drawer-list a.drawer-section { margin: 8px 0 0; padding-top: 14px; border-top: 1px dashed var(--line); color: var(--slate); font-weight: 800; }
 .drawer-list a.drawer-sub { padding-left: 36px; font-size: 15px; }
+.drawer-list span.drawer-section { margin: 8px 0 0; padding: 14px 20px 4px; }
 
 /* Gọi thêm: what the table already ordered, one tap to Đã gửi */
 .ordered-strip {
@@ -265,3 +266,13 @@
 .btn-save { background: var(--surface); color: var(--muted) !important; }
 .btn-save.is-dirty { border: 2px solid var(--accent); color: var(--accent) !important; }
 .btn-save:disabled:not(.is-dirty) { opacity: 1; }
+
+/* Món mới chưa gửi: nhắc kiểm tra trước khi Lưu & gửi bếp */
+.review-hint { margin: 0 -16px; padding: 10px 16px; background: var(--warn-bg); color: var(--warn); font-size: 14px; }
+.btn-save.is-dirty { background: var(--accent); color: #fff !important; font-size: 15px !important; line-height: 1.2; }
+.floor-area-head { margin: 4px 0 8px; }
+.floor-area-head:not(:first-child), section + section > .floor-area-head { margin-top: 16px; }
+.table-edit { flex-wrap: wrap; align-items: flex-end; background: var(--accent-soft); margin: 0 -12px; padding: 10px 12px; }
+.table-edit .field { margin: 0; flex: 1 1 120px; }
+.table-edit .field:has(.w-qty) { flex: 0 0 auto; }
+.area-edit { align-items: flex-end; } .area-edit .field { flex: 1; min-width: 160px; }

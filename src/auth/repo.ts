@@ -2,6 +2,7 @@
 // createMemoryAuthRepo (memoryRepo.ts) runs on sample staff in this browser; createSupabaseAuthRepo
 // (supabaseRepo.ts) runs the same screens on 0006 (PINs hashed with bcrypt on the server).
 
+import type { Perm, PermMatrix, PermRole } from './permissions'
 import type {
   ApprovalRequest, ApprovalResult, AuditEntry, AuthSettings, Device, DeviceCode, DeviceKind, RosterEntry, Session, SignInResult, StaffInput, StaffRecord,
 } from './types'
@@ -36,8 +37,17 @@ export interface AuthRepo {
   devices(): Promise<DeviceRow[]>
   createDeviceCode(name: string, kind: DeviceKind): Promise<DeviceCode>
   setDeviceActive(id: string, active: boolean): Promise<void>
+  /**
+   * Xoá vĩnh viễn (admin.delete, admin_delete in 0010): a person with their PIN and sessions (not oneself, not the
+   * last owner; managers and owners only by the owner), or a device with its sessions (not this one).
+   */
+  adminDelete(kind: 'staff' | 'device', id: string): Promise<void>
   audit(limit?: number): Promise<AuditEntry[]>
-  /** Staff or device changes from any tab/device. Returns unsubscribe. */
+  /** What each role may do (0009). Everyone signed in reads it; the owner always has everything. */
+  permissions(): Promise<PermMatrix>
+  /** Owner only: replace one role's permissions. Resolves with what the role has now. */
+  savePermissions(role: PermRole, perms: Perm[]): Promise<Perm[]>
+  /** Staff, device or permission changes from any tab/device. Returns unsubscribe. */
   subscribe(onChange: () => void): () => void
   /** Sample only: the sample PINs shown on the sign-in screen. */
   samplePins?(): Record<string, string>

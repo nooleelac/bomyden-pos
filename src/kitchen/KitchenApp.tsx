@@ -1,29 +1,29 @@
-// Kitchen display (Bếp nướng, Bếp lẩu, Bar, or Tất cả khu): bright like the rest of the app, big, readable from 2 metres.
+// Kitchen display (Bếp nướng, Bếp lẩu, Bar, or Tất cả khu): bright like the rest of the app, readable from about 1 metre.
 // One ticket = one Gửi bếp × one station × one order × one delivery table. Tap a dish to move it
 // Chờ làm → Đang làm → Xong; tap the ticket head (or "Xong phiếu") to bump; "Phiếu đã xong" to recall.
-// HUỶ and SỬA stay on top until "Đã biết", each with its own sound. Keypad: 1–9 select, Enter bump, 0 recall.
+// HUỶ and SỬA stay on top until "Đã biết", each with its own sound. Every ticket is on one board: swipe or scroll
+// up and down, no pages. Keypad: 1–9 select, Enter bump, 0 recall, PageUp / PageDown (or − / +) scroll.
 // Route: #/bep  #/bep/<station code | all>
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MenuRepo } from '../menu/repo'
 import type { Menu } from '../menu/types'
 import { TopBar } from '../auth/chrome'
 import { errText, go, useLive, useNow, useRoute } from '../floor/hooks'
-import { activeTickets, allergyText, clock, doneTickets, lineParts, tableTitle, type Ticket } from '../floor/logic'
+import { activeTickets, allergyText, clock, doneTickets, kitchenLineKey, lineParts, tableTitle, type KitchenLine, type Ticket } from '../floor/logic'
 import type { FloorRepo } from '../floor/repo'
 import { play, soundReady, unlockSound, type SoundKind } from '../floor/sound'
-import type { FloorState, Line, LineStatus, Notice } from '../floor/types'
+import type { FloorState, LineStatus, Notice } from '../floor/types'
 import './kitchen.css'
 
 interface Prefs {
   columns: number
-  rows: number
   font: 'l' | 'xl' | 'xxl'
   contrast: boolean
 }
 const PREFS_KEY = 'bmd-kds-prefs'
 function loadPrefs(): Prefs {
-  const d: Prefs = { columns: 4, rows: 2, font: 'xl', contrast: false }
+  const d: Prefs = { columns: 4, font: 'xl', contrast: false }
   try {
     return { ...d, ...(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>) }
   } catch {
@@ -41,7 +41,6 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
   const now = useNow(1000, floor?.clockOffset ?? 0)
   const route = useRoute()
   const [prefs, setPrefsState] = useState(loadPrefs)
-  const [page, setPage] = useState(0)
   const [showDone, setShowDone] = useState(false)
   const [selected, setSelected] = useState(0)
   const [sound, setSound] = useState(soundReady)
@@ -81,28 +80,12 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
     window.addEventListener('resize', f)
     return () => window.removeEventListener('resize', f)
   }, [])
-  const cols = Math.max(1, Math.min(prefs.columns, Math.floor((width - 120) / 250)))
-  const perPage = cols * prefs.rows
-  const pages = Math.max(1, Math.ceil(tickets.length / perPage))
-  const pageNo = Math.min(page, pages - 1)
-  const visible = tickets.slice(pageNo * perPage, pageNo * perPage + perPage)
+  const cols = Math.max(1, Math.min(prefs.columns, Math.floor((width - 150) / 210)))
 
   useAlerts(floor, menu, station, now)
 
-  // tickets grow with their dishes; when some run past the bottom of the screen, say so (never hide dish lines)
+  // tickets grow with their dishes (never clipped); the board scrolls when they run past the bottom of the screen
   const gridRef = useRef<HTMLElement | null>(null)
-  const [below, setBelow] = useState(0)
-  const measureBelow = useCallback(() => {
-    const g = gridRef.current
-    if (!g) return setBelow(0)
-    const bottom = g.getBoundingClientRect().bottom
-    setBelow(Array.from(g.querySelectorAll('.ticket')).filter(el => el.getBoundingClientRect().bottom > bottom + 2).length)
-  }, [])
-  useLayoutEffect(measureBelow)
-  useEffect(() => {
-    window.addEventListener('resize', measureBelow)
-    return () => window.removeEventListener('resize', measureBelow)
-  }, [measureBelow])
 
   const fail = (e: unknown) => onError(errText(e))
   const bump = (t: Ticket) =>
@@ -117,10 +100,10 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
     const f = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return
       if (/^[1-9]$/.test(e.key)) setSelected(Number(e.key) - 1)
-      else if (e.key === 'Enter' && visible[selected]) void bump(visible[selected])
+      else if (e.key === 'Enter' && tickets[selected]) void bump(tickets[selected])
       else if (e.key === '0' && lastBumped.current) void recall(lastBumped.current)
-      else if (e.key === 'PageDown' || e.key === '+') setPage(p => Math.min(p + 1, pages - 1))
-      else if (e.key === 'PageUp' || e.key === '-') setPage(p => Math.max(p - 1, 0))
+      else if (e.key === 'PageDown' || e.key === '+') gridRef.current?.scrollBy({ top: gridRef.current.clientHeight * 0.8, behavior: 'smooth' })
+      else if (e.key === 'PageUp' || e.key === '-') gridRef.current?.scrollBy({ top: -gridRef.current.clientHeight * 0.8, behavior: 'smooth' })
     }
     window.addEventListener('keydown', f)
     return () => window.removeEventListener('keydown', f)
@@ -158,38 +141,53 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
               {s.late > 0 && <span className="rail-late">{s.late} trễ</span>}
             </button>
           ))}
+          {/* tools and display settings live under the stations, so the board keeps the whole width and height */}
+          <div className="kds-tools">
+            <p className="kds-count">
+              <b>{tickets.length}</b> phiếu chờ
+            </p>
+            {!sound && (
+              <button type="button" className="kds-btn kds-start" onClick={startShift}>
+                <span aria-label="Chưa bật âm thanh">🔇</span> Bật âm thanh
+              </button>
+            )}
+            <button type="button" className={'kds-btn' + (showDone ? ' is-on' : '')} onClick={() => setShowDone(v => !v)}>
+              {showDone ? '◂ Phiếu chờ' : 'Phiếu đã xong'}
+            </button>
+            <details className="kds-settings">
+              <summary>⚙ Cài đặt</summary>
+              <label>
+                Số cột
+                <select value={prefs.columns} onChange={e => setPrefs({ columns: Number(e.target.value) })}>
+                  {[2, 3, 4, 5, 6].map(n => (
+                    <option key={n} value={n}>
+                      {n} cột
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Cỡ chữ
+                <select value={prefs.font} onChange={e => setPrefs({ font: e.target.value as Prefs['font'] })}>
+                  <option value="l">Nhỏ</option>
+                  <option value="xl">Vừa</option>
+                  <option value="xxl">Lớn</option>
+                </select>
+              </label>
+              <label className="kds-check">
+                <input type="checkbox" checked={prefs.contrast} onChange={e => setPrefs({ contrast: e.target.checked })} /> Tương phản cao
+              </label>
+              {sound && (
+                <button type="button" className="kds-btn" onClick={() => play('void')}>
+                  🔊 Thử tiếng
+                </button>
+              )}
+            </details>
+          </div>
         </nav>
-    <div className={`kds font-${prefs.font}${prefs.contrast ? ' high-contrast' : ''}`} style={{ ['--cols' as string]: cols, ['--rows' as string]: prefs.rows }}>
+    <div className={`kds font-${prefs.font}${prefs.contrast ? ' high-contrast' : ''}`} style={{ ['--cols' as string]: cols }}>
       <header className="kds-bar">
-        <b className="kds-station-name">{stationName}</b>
-        <span className="kds-count">{tickets.length} phiếu chờ</span>
-        {!sound ? (
-          <button type="button" className="kds-btn kds-start" onClick={startShift}>
-            <span className="muted-icon" aria-label="Chưa bật âm thanh">🔇</span> Bắt đầu ca – bật âm thanh
-          </button>
-        ) : (
-          <button type="button" className="kds-btn" onClick={() => play('void')}>
-            🔊 Thử tiếng
-          </button>
-        )}
-        <button type="button" className={'kds-btn' + (showDone ? ' is-on' : '')} onClick={() => setShowDone(v => !v)}>
-          Phiếu đã xong
-        </button>
-        <select aria-label="Số cột" value={prefs.columns} onChange={e => setPrefs({ columns: Number(e.target.value) })}>
-          {[2, 3, 4, 5, 6].map(n => (
-            <option key={n} value={n}>
-              {n} cột
-            </option>
-          ))}
-        </select>
-        <select aria-label="Cỡ chữ" value={prefs.font} onChange={e => setPrefs({ font: e.target.value as Prefs['font'] })}>
-          <option value="l">Chữ lớn</option>
-          <option value="xl">Rất lớn</option>
-          <option value="xxl">Cực lớn</option>
-        </select>
-        <label className="kds-check">
-          <input type="checkbox" checked={prefs.contrast} onChange={e => setPrefs({ contrast: e.target.checked })} /> Tương phản cao
-        </label>
+        <b className="kds-station-name">{showDone ? `${stationName} · phiếu đã xong` : stationName}</b>
         <span className="kds-clock">{clock(now.toISOString())}</span>
       </header>
 
@@ -201,7 +199,7 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
             {done.map(t => (
               <li key={t.key}>
                 <b>{tableTitle(t.label).toUpperCase()}</b> · Lượt {t.round} · gửi {clock(t.sentAt)} · xong {clock(t.doneAt)} ·{' '}
-                {t.lines.map(l => `${l.qty} ${l.shortName}`).join(', ')}
+                {t.lines.map(l => `${l.qty} ${l.shortName}${l.parts.length ? ` (${l.parts.join(', ')})` : ''}`).join(', ')}
                 <button type="button" className="kds-btn" onClick={() => recall(t.key)}>
                   Gọi lại
                 </button>
@@ -210,13 +208,13 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
           </ul>
         </section>
       ) : (
-        <main className="kds-grid" ref={gridRef} onScroll={measureBelow}>
-          {visible.length === 0 && <p className="kds-empty">Không có phiếu chờ</p>}
+        <main className="kds-grid" ref={gridRef}>
+          {tickets.length === 0 && <p className="kds-empty">Không có phiếu chờ</p>}
           {/* masonry: ticket i goes to column i % cols, so the order still reads left to right and each ticket is as tall as its dishes */}
-          {visible.length > 0 &&
+          {tickets.length > 0 &&
             Array.from({ length: cols }, (_, c) => (
               <div key={c} className="kds-col">
-                {visible.map((t, i) =>
+                {tickets.map((t, i) =>
                   i % cols !== c ? null : (
                     <TicketCard
                       key={t.key}
@@ -226,7 +224,12 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
                       menu={menu}
                       showStation={station === 'all'}
                       onBump={() => bump(t)}
-                      onLine={(l: Line) => NEXT[l.status] && repo.setLineStatus([l.id], NEXT[l.status]!).catch(fail)}
+                      onLine={(l: KitchenLine) => {
+                        const to = NEXT[l.status]
+                        if (!to) return
+                        const done = l.sideStationId ? repo.setPartStatus([{ lineId: l.id, stationId: l.sideStationId }], to) : repo.setLineStatus([l.id], to)
+                        done.catch(fail)
+                      }}
                       onAck={(n: Notice) => repo.ackNotice(n.id).catch(fail)}
                       onDecide={(n: Notice, ok: boolean) => repo.decideModify(n.id, ok).catch(fail)}
                     />
@@ -234,25 +237,7 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
                 )}
               </div>
             ))}
-          {below > 0 && (
-            <button type="button" className="kds-more" onClick={() => gridRef.current?.scrollBy({ top: gridRef.current.clientHeight * 0.8, behavior: 'smooth' })}>
-              ▼ Còn {below} phiếu chưa thấy hết – cuộn xuống
-            </button>
-          )}
         </main>
-      )}
-      {!showDone && pages > 1 && (
-        <nav className="kds-pages">
-          <button type="button" className="kds-btn" disabled={pageNo === 0} onClick={() => setPage(pageNo - 1)}>
-            ◂ Trang trước
-          </button>
-          <span>
-            Trang {pageNo + 1}/{pages}
-          </span>
-          <button type="button" className="kds-btn kds-next" disabled={pageNo >= pages - 1} onClick={() => setPage(pageNo + 1)}>
-            Trang sau (còn {tickets.length - (pageNo + 1) * perPage} phiếu) ▸
-          </button>
-        </nav>
       )}
       {undo && (
         <div className="kds-undo" role="status">
@@ -280,7 +265,7 @@ function TicketCard(props: {
   menu: Menu
   showStation: boolean
   onBump: () => void
-  onLine: (l: Line) => void
+  onLine: (l: KitchenLine) => void
   onAck: (n: Notice) => void
   onDecide: (n: Notice, ok: boolean) => void
 }) {
@@ -331,7 +316,7 @@ function TicketCard(props: {
           const voidN = t.notices.find(n => n.kind === 'void' && n.lineId === l.id)
           const modN = t.notices.find(n => n.kind === 'modify' && n.lineId === l.id)
           return (
-            <li key={l.id} className={`tl tl-${l.status}${voidN ? ' has-void' : ''}${modN ? ' has-modify' : ''}`}>
+            <li key={kitchenLineKey(l)} className={`tl tl-${l.status}${voidN ? ' has-void' : ''}${modN ? ' has-modify' : ''}${l.sideStationId ? ' is-side' : ''}`}>
               {voidN && (
                 <div className="notice notice-void">
                   <b className="notice-badge">HUỶ</b> {voidN.text.replace(/^HUỶ /, '')}
@@ -371,7 +356,9 @@ function TicketCard(props: {
                   <span className="tl-name">
                     {l.shortName}
                     {l.variantName && <span className="tl-size"> – {l.variantName}</span>}
+                    {l.sideStationId && <span className="tl-side-tag"> đi kèm</span>}
                   </span>
+                  {l.parts.length > 0 && <span className="tl-parts">{l.parts.join(' · ')}</span>}
                   {p.options.length > 0 && <span className="tl-opt">{p.options.join(' · ')}</span>}
                   {p.removals.map(r => (
                     <span key={r} className="tl-removal">
@@ -380,6 +367,11 @@ function TicketCard(props: {
                   ))}
                   {p.addons.length > 0 && <span className="tl-addon">{p.addons.join(' · ')}</span>}
                   {l.note && <span className="tl-note">✎ {l.note}</span>}
+                  {l.others.length > 0 && l.status !== 'void' && (
+                    <span className="tl-others">
+                      {l.others.map(o => `${props.menu.stations.find(s => s.id === o.stationId)?.name ?? 'Quầy khác'}: ${STATE_TEXT[o.status]}`).join(' · ')}
+                    </span>
+                  )}
                 </span>
                 <span className={`tl-state st-${l.status}`}>{STATE_TEXT[l.status]}</span>
               </button>

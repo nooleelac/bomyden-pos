@@ -51,7 +51,7 @@ describe('mở bàn', () => {
   })
   it('needs 1–99 guests, an open area, and refuses the kitchen account', () => {
     expect(() => open(seedFloor(), 't-1', 0)).toThrow('Số khách phải từ 1 đến 99')
-    expect(() => open(seedFloor(), 't-1', 2, kitchen)).toThrow('Tài khoản bếp')
+    expect(() => open(seedFloor(), 't-1', 2, kitchen)).toThrow('Chưa có quyền: Mở bàn')
     const closed = E.saveArea(seedFloor(), { id: 'a-2', name: 'Tầng 2', sort: 2, active: false }, manager)
     expect(tableState(closed, table(closed, 't-13'))).toBe('closed')
     expect(() => open(closed, 't-13')).toThrow('Khu này đang tạm đóng')
@@ -78,8 +78,8 @@ describe('ghép bàn (đơn riêng trên một bàn)', () => {
     expect(orderLabel(s, order(s, r.orderId))).toBe('5-B')
     s = send(s, r.orderId, [steak300]).state
     const t = buildTickets(s, T0)
-    expect(t).toHaveLength(1)
-    expect(t[0]).toMatchObject({ label: '5-B', positionLabel: '2 khách áo xanh' })
+    expect(t).toHaveLength(2) // the steak at the grill, its salad, bánh mì and sốt at the cold counter
+    expect(t.every(x => x.label === '5-B' && x.positionLabel === '2 khách áo xanh')).toBe(true)
     // 5-B pays; the table stays occupied until 5-A closes too
     s = payCash(s, r.orderId)
     expect(tableState(s, table(s, 't-5'))).toBe('occupied')
@@ -105,7 +105,7 @@ describe('gửi bếp', () => {
       ['st-hotpot', 399000, 1, 'new'],
       ['st-bar', 25000, 1, 'new'], // drinks go to the bar
     ])
-    expect(new Set(buildTickets(first.state, T0).map(t => t.stationId))).toEqual(new Set(['st-grill', 'st-hotpot', 'st-bar']))
+    expect(new Set(buildTickets(first.state, T0).map(t => t.stationId))).toEqual(new Set(['st-grill', 'st-cold', 'st-hotpot', 'st-bar']))
     const second = send(first.state, o.orderId, [beer(2)])
     expect(linesOf(second.state, o.orderId).slice(-1)[0].round).toBe(2)
   })
@@ -141,7 +141,7 @@ describe('trạng thái món, xong phiếu, gọi lại', () => {
   }
   it('Chờ làm → Đang làm → Xong → Đã bưng, with role checks and the 2-minute undo', () => {
     const { s, ids } = cooking()
-    expect(() => E.setLineStatus(s, [ids[0]], 'cooking', waiter)).toThrow('Chỉ máy bếp')
+    expect(() => E.setLineStatus(s, [ids[0]], 'cooking', waiter)).toThrow('Chưa có quyền: Màn hình bếp')
     let x = E.setLineStatus(s, [ids[0]], 'cooking', kitchen)
     x = E.setLineStatus(x, [ids[0]], 'ready', at(1, 'kitchen'))
     expect(readyToServe(x, at(2).now).map(r => r.label)).toEqual(['3'])
@@ -318,7 +318,7 @@ describe('chuyển bàn, chuyển món, tách đơn', () => {
     expect(linesOf(s, a).map(l => l.qty)).toEqual([4])
     expect(linesOf(s, b)).toMatchObject([{ qty: 2, price: 25000, deliveryTableId: 't-12', movedFromLabel: '2', originOrderId: a }])
     const ready = E.setLineStatus(s, [r.lineIds[0]], 'ready', kitchen)
-    expect(() => E.moveItems(ready, [{ id: r.lineIds[0] }], b, waiter)).toThrow('cần thu ngân')
+    expect(() => E.moveItems(ready, [{ id: r.lineIds[0] }], b, waiter)).toThrow('Chưa có quyền: Chuyển món đã xong')
     expect(linesOf(E.moveItems(ready, [{ id: r.lineIds[0] }], b, cashier), b)).toHaveLength(2)
   })
   it('splits chosen lines into 5-B on the same table (cashier), kitchen keeps cooking', () => {
@@ -327,19 +327,20 @@ describe('chuyển bàn, chuyển món, tách đơn', () => {
     const r = send(s, id, [steak300, beer(3), lau])
     s = E.setLineStatus(r.state, [r.lineIds[0]], 'cooking', kitchen)
     const split = { orderId: id, items: [{ id: r.lineIds[0], qty: 1 }, { id: r.lineIds[1] }], positionLabel: 'nhóm B', guestCount: 2, sourceLabel: 'nhóm A' }
-    expect(() => E.splitOrder(s, split, waiter)).toThrow('Chỉ thu ngân')
+    expect(() => E.splitOrder(s, split, waiter)).toThrow('Chưa có quyền: Tách đơn')
     const x = E.splitOrder(s, split, cashier)
     expect(orderLabel(x.state, order(x.state, x.orderId))).toBe('8-B')
     expect(orderLabel(x.state, order(x.state, id))).toBe('8-A')
     expect(linesOf(x.state, x.orderId).map(l => [l.name, l.qty, l.status]).sort()).toEqual([['Bia Tiger lon', 3, 'new'], ['Steak bò nướng', 1, 'cooking']])
     expect(linesOf(x.state, id).map(l => l.qty)).toEqual([1, 1])
     const labels = buildTickets(x.state, T0).map(t => t.label).sort()
-    expect(labels).toEqual(['8-A', '8-A', '8-B', '8-B'])
+    expect(labels).toEqual(['8-A', '8-A', '8-A', '8-B', '8-B', '8-B']) // each steak half keeps its cold-counter part
+    expect(linesOf(x.state, x.orderId).find(l => l.name === 'Steak bò nướng')!.sideParts).toMatchObject([{ stationId: 'st-cold', status: 'new' }])
   })
 })
 
 describe('tạm tính, thanh toán, dọn bàn', () => {
-  it('Đang ngồi → Chờ thanh toán → (gọi thêm: Đang ngồi) → Đang thanh toán → Chờ dọn → Trống', () => {
+  it('Đang ngồi → Chờ thanh toán → (gọi thêm: Đang ngồi) → Đang thanh toán → Trống ngay khi thu xong', () => {
     let s = open(seedFloor(), 't-7').state
     const id = s.orders[0].id
     expect(() => E.requestBill(s, id, waiter)).toThrow('chưa có món')
@@ -350,13 +351,11 @@ describe('tạm tính, thanh toán, dọn bàn', () => {
     expect(tableState(s, table(s, 't-7'))).toBe('occupied')
     s = E.requestBill(s, id, waiter)
     expect(order(s, id).billPrintCount).toBe(2)
-    expect(() => E.beginPayment(s, id, waiter)).toThrow('Chỉ thu ngân')
+    expect(() => E.beginPayment(s, id, waiter)).toThrow('Chưa có quyền: Thu tiền')
     s = E.beginPayment(s, id, cashier)
     expect(tableState(s, table(s, 't-7'))).toBe('paying')
     expect(() => send(s, id, [beer(1)], { ...waiter, actor: { name: 'Minh', role: 'waiter' } })).toThrow('Đơn đang thanh toán')
     s = payCash(s, id)
-    expect(tableState(s, table(s, 't-7'))).toBe('cleaning')
-    s = E.markClean(s, 't-7', waiter)
     expect(tableState(s, table(s, 't-7'))).toBe('free')
   })
   it('an order with nothing on it closes without permission', () => {
@@ -397,6 +396,80 @@ describe('mang về, giục món', () => {
   })
 })
 
+describe('một món, hai quầy (phần đi kèm)', () => {
+  // Steak at Bếp nướng; salad, bánh mì and the sốt at Quầy rau – sốt (seed menu): one line on the bill, two tickets
+  const full: SendLineInput = { ...steak300, options: [{ option_id: 'o-m' }, { option_id: 'o-pepper' }, { option_id: 'o-bread' }], removals: ['k-egg'] }
+  function sent(line = full) {
+    const o = open(seedFloor(), 't-3')
+    const r = send(o.state, o.orderId, [line])
+    return { s: r.state, id: r.lineIds[0], orderId: o.orderId }
+  }
+  const ticketAt = (s: FloorState, station: string, now = T0) => activeTickets(s, menu, station, now)[0]
+
+  it('sends one line with a side part; each station sees only what it makes', () => {
+    const { s, orderId } = sent()
+    const l = linesOf(s, orderId)[0]
+    expect(linesOf(s, orderId)).toHaveLength(1)
+    expect(l).toMatchObject({ stationId: 'st-grill', price: 279000 - 3000 + 5000, sideParts: [{ stationId: 'st-cold', parts: ['SALAD', 'BÁNH MÌ'], status: 'new' }] })
+    expect(l.mods.map(m => [m.kitchenName, m.stationId ?? null])).toEqual([['MEDIUM', null], ['TIÊU ĐEN', 'st-cold'], ['+ BÁNH MÌ', 'st-cold'], ['TRỨNG', null]])
+    const grill = ticketAt(s, 'st-grill')
+    expect(grill.lines.map(x => [x.qty, x.shortName, x.mods.map(m => m.kitchenName), x.parts])).toEqual([[2, 'STEAK BÒ', ['MEDIUM', 'TRỨNG'], []]])
+    expect(grill.lines[0].others).toEqual([{ stationId: 'st-cold', status: 'new' }])
+    const cold = ticketAt(s, 'st-cold')
+    expect(cold).toMatchObject({ label: '3', stationId: 'st-cold' })
+    expect(cold.lines.map(x => [x.qty, x.parts, x.mods.map(m => m.kitchenName)])).toEqual([[2, ['SALAD', 'BÁNH MÌ'], ['TIÊU ĐEN', '+ BÁNH MÌ']]])
+    expect(E.taxedLines(s, orderId)).toHaveLength(1) // the bill reads the one line, at its price
+  })
+  it('no side part when everything made elsewhere is left out', () => {
+    const { s, orderId } = sent({ ...steak300, removals: ['k-salad', 'k-bread'] })
+    expect(linesOf(s, orderId)[0].sideParts).toEqual([])
+    expect(activeTickets(s, menu, 'st-cold', T0)).toHaveLength(0)
+    expect(ticketAt(s, 'st-grill').lines[0].mods.map(m => m.kitchenName)).toEqual(['MEDIUM', 'SALAD', 'BÁNH MÌ']) // KHÔNG SALAD stays with the steak
+  })
+  it('the cold counter finishes its part first and the waiter carries it out; the steak keeps cooking', () => {
+    const { s, id } = sent()
+    const part = { lineId: id, stationId: 'st-cold' }
+    expect(() => E.setPartStatus(s, [part], 'cooking', waiter)).toThrow('Chưa có quyền: Màn hình bếp')
+    let x = E.setPartStatus(s, [part], 'ready', at(3, 'kitchen'))
+    expect(x.lines[0]).toMatchObject({ status: 'new', sideParts: [{ status: 'ready', readyAt: at(3).now.toISOString() }] })
+    expect(activeTickets(x, menu, 'st-cold', at(3).now)).toHaveLength(0)
+    expect(ticketAt(x, 'st-grill', at(3).now).lines[0].others).toEqual([{ stationId: 'st-cold', status: 'ready' }])
+    const ready = readyToServe(x, at(4).now)
+    expect(ready.map(r => [r.label, r.line.sideStationId, r.line.parts])).toEqual([['3', 'st-cold', ['SALAD', 'BÁNH MÌ']]])
+    expect(() => E.setPartStatus(s, [part], 'served', waiter)).toThrow('Chỉ bưng món đã xong')
+    x = E.setPartStatus(x, [part], 'served', at(4))
+    expect(readyToServe(x, at(4).now)).toHaveLength(0)
+    expect(tableTile(x, table(x, 't-3'), at(15).now).kitchenHeat).toBe('warn') // the steak is still at the grill
+    x = E.setLineStatus(x, [id], 'ready', at(9, 'kitchen'))
+    expect(readyToServe(x, at(9).now).map(r => r.line.sideStationId)).toEqual([null])
+  })
+  it('bump and recall work on the side ticket alone', () => {
+    const { s } = sent()
+    const cold = ticketAt(s, 'st-cold')
+    let x = E.bumpTicket(s, cold.key, at(2, 'kitchen'))
+    expect(x.lines[0]).toMatchObject({ status: 'new', sideParts: [{ status: 'ready' }] })
+    expect(doneTickets(x, 'st-cold', at(3).now)).toHaveLength(1)
+    x = E.recallTicket(x, cold.key, at(3, 'kitchen'))
+    expect(x.lines[0].sideParts[0].status).toBe('cooking')
+    expect(ticketAt(x, 'st-cold', at(3).now).recalled).toBe(true)
+  })
+  it('huỷ shows on both tickets; giục reaches the station still working', () => {
+    const { s, id, orderId } = sent()
+    const v = E.voidLine(s, id, { qty: 2, reason: 'Khách đổi ý' }, manager)
+    expect([ticketAt(v, 'st-grill'), ticketAt(v, 'st-cold')].map(t => t.notices.map(n => n.kind))).toEqual([['void'], ['void']])
+    expect(ticketAt(v, 'st-cold').lines[0].status).toBe('void')
+    const grillDone = E.setLineStatus(s, [id], 'ready', kitchen)
+    const chased = E.chaseOrder(grillDone, orderId, at(5))
+    expect(chased.notices.map(n => n.stationId)).toEqual(['st-cold'])
+  })
+  it('tách món: each half keeps its own side part state', () => {
+    const { s, id, orderId } = sent()
+    const x = E.setPartStatus(s, [{ lineId: id, stationId: 'st-cold' }], 'cooking', kitchen)
+    const y = E.splitOrder(x, { orderId, items: [{ id, qty: 1 }], positionLabel: 'B', guestCount: 1, sourceLabel: 'A' }, cashier)
+    expect(y.state.lines.map(l => [l.qty, l.sideParts[0].status])).toEqual([[1, 'cooking'], [1, 'cooking']])
+  })
+})
+
 describe('memory repo', () => {
   it('runs the sample evening and keeps the state when a transition fails', async () => {
     const repo = createMemoryFloorRepo({ initial: sampleEvening(menu, T0), menu: () => menu, actor: () => ({ name: 'Hùng', role: 'waiter' }), now: () => T0 })
@@ -422,5 +495,61 @@ describe('ô dị ứng trên phiếu bếp', () => {
     expect(allergyText('dị ứng: tôm')).toBe('⚠ DỊ ỨNG: tôm')
     expect(allergyText('hải sản')).toBe('⚠ DỊ ỨNG: hải sản')
     expect(allergyText('')).toBe('⚠ CÓ KHÁCH DỊ ỨNG')
+  })
+})
+
+describe('xoá vĩnh viễn (admin.delete)', () => {
+  const owner = at(0, 'owner')
+  it('only with the permission: the owner has it, a manager not by default', () => {
+    const r = open(seedFloor(), 't-6')
+    expect(() => E.adminDelete(r.state, 'order', r.orderId, manager)).toThrow('Chưa có quyền: Xoá vĩnh viễn')
+    expect(E.adminDelete(r.state, 'order', r.orderId, owner).orders.some(o => o.id === r.orderId)).toBe(false)
+  })
+
+  it('an order goes with its dishes and bill; a table with the orders open on it, paid ones keep their bill', () => {
+    const a = open(seedFloor(), 't-6')
+    let s = send(a.state, a.orderId, [beer(2)]).state
+    s = payCash(s, a.orderId)
+    const b = open(s, 't-6')
+    s = send(b.state, b.orderId, [lau]).state
+    const bill = s.bills.find(x => x.orderId === a.orderId)!
+    s = E.adminDelete(s, 'table', 't-6', owner)
+    expect(s.tables.some(t => t.id === 't-6')).toBe(false)
+    expect(s.orders.some(o => o.id === b.orderId) || linesOf(s, b.orderId).length).toBeFalsy()
+    expect(order(s, a.orderId)).toMatchObject({ status: 'paid', tableId: null, tables: [] })
+    expect(s.bills.some(x => x.id === bill.id)).toBe(true)
+    s = E.adminDelete(s, 'order', a.orderId, owner)
+    expect(s.bills.some(x => x.id === bill.id) || linesOf(s, a.orderId).length).toBeFalsy()
+  })
+
+  it('an area goes with its tables; a shift leaves its bills without a shift', () => {
+    const a = open(seedFloor(), 't-6')
+    let s = payCash(send(a.state, a.orderId, [beer(1)]).state, a.orderId)
+    const area = table(s, 't-6').areaId
+    s = E.adminDelete(s, 'area', area, owner)
+    expect(s.areas.some(x => x.id === area) || s.tables.some(t => t.areaId === area)).toBe(false)
+    const shift = s.shifts[0].id
+    s = E.adminDelete(s, 'shift', shift, owner)
+    expect(s.shifts.some(x => x.id === shift)).toBe(false)
+    expect(s.bills.find(x => x.orderId === a.orderId)?.shiftId).toBeNull()
+  })
+})
+
+describe('cài đặt thanh toán', () => {
+  const base = { payMethods: { cash: true, bank: true, card: true }, vatRate: null, showVat: true, bankBin: '970436', bankName: 'Vietcombank', bankAccount: '0123 456 789', bankAccountName: 'nguyen van a' }
+  it('needs one method, a bank account for transfers, a whole VAT % from 0 to 100, and settings.edit', () => {
+    expect(() => E.checkPaymentSettings({ ...base, payMethods: { cash: false, bank: false, card: false } })).toThrow('Bật ít nhất một phương thức thanh toán')
+    expect(() => E.checkPaymentSettings({ ...base, bankBin: '97' })).toThrow('BIN')
+    expect(() => E.checkPaymentSettings({ ...base, vatRate: 7.5 })).toThrow('Thuế suất')
+    expect(E.checkPaymentSettings({ ...base, bankBin: '', payMethods: { cash: true, bank: false, card: true } }).payMethods.bank).toBe(false)
+    expect(E.checkPaymentSettings(base)).toMatchObject({ bankAccount: '0123456789', bankAccountName: 'NGUYEN VAN A' })
+    expect(() => E.saveShop(seedFloor(), base, waiter)).toThrow('Chưa có quyền')
+  })
+  it("the shop's VAT % applies to dishes sent after saving; dishes already sent keep their rate", () => {
+    const r = open(seedFloor(), 't-1')
+    const s1 = send(r.state, r.orderId, [beer(1)]).state
+    const s2 = E.saveShop(s1, { ...base, vatRate: 5 }, manager)
+    const s3 = send(s2, r.orderId, [lau]).state
+    expect(linesOf(s3, r.orderId).map(l => l.vatRate)).toEqual([10, 5])
   })
 })

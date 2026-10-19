@@ -1,16 +1,15 @@
-// Waiter / cashier shell: floor map, order screen, area setup, and the "Chờ bưng" list that rings when
-// the kitchen marks dishes Xong. Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat
+// Waiter / cashier shell: floor map, order screen, area setup (the "Chờ bưng" bar is hidden: Đã bưng is marked
+// on the order screen). Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
 import { useAuth } from '../auth/context'
 import type { MenuRepo } from '../menu/repo'
 import '../menu/menu.css'
 import './floor.css'
 import { errText, useLive, useNow, useOnline, useRoute } from './hooks'
-import { clock, formatDuration, readyToServe, tableTitle } from './logic'
 import type { FloorRepo } from './repo'
-import { play, unlockSound } from './sound'
+import { unlockSound } from './sound'
 import { FloorMap } from './screens/FloorMap'
 import { OrdersPage } from './screens/OrdersPage'
 import { OrderView } from './screens/OrderView'
@@ -28,8 +27,6 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
   const now = useNow(5000, floor?.clockOffset ?? 0)
   const route = useRoute()
   const online = useOnline()
-  const [readyOpen, setReadyOpen] = useState(false)
-  const seenReady = useRef<Set<string> | null>(null)
 
   useEffect(() => {
     if (!toast) return
@@ -42,13 +39,6 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
     window.addEventListener('pointerdown', f, { once: true })
     return () => window.removeEventListener('pointerdown', f)
   }, [])
-
-  const ready = useMemo(() => (floor ? readyToServe(floor, now) : []), [floor, now])
-  useEffect(() => {
-    const ids = new Set(ready.map(r => r.line.id))
-    if (seenReady.current && [...ids].some(id => !seenReady.current!.has(id))) play('ready')
-    seenReady.current = ids
-  }, [ready])
 
   if (!floor || !menu) return <div className="menu-app loading">Đang tải sơ đồ bàn…</div>
   const page = route[0] === 'don' ? 'orders' : route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : 'map'
@@ -67,30 +57,6 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
             </button>
           )}
         </div>
-      )}
-      {ready.length > 0 && (
-        <section className={'ready-bar' + (readyOpen ? ' is-open' : '')} aria-label="Món chờ bưng">
-          <button type="button" className="ready-toggle" onClick={() => setReadyOpen(o => !o)}>
-            🔔 Chờ bưng <b>{ready.reduce((n, r) => n + r.line.qty, 0)}</b> · lâu nhất {tableTitle(ready[0].label)} {formatDuration(ready[0].waitMs)}
-            <span aria-hidden>{readyOpen ? '▴' : '▾'}</span>
-          </button>
-          {readyOpen && (
-            <ul>
-              {ready.map(r => (
-                <li key={r.line.id}>
-                  <a href={`#/ban/don/${r.order.id}`}>
-                    <b>{tableTitle(r.label)}</b>: {r.line.qty} {r.line.name}
-                    {r.line.variantName && ` ${r.line.variantName}`} xong {clock(r.line.readyAt)}
-                    <span className={r.waitMs > 120_000 ? 'late-text' : 'muted'}> · chờ {formatDuration(r.waitMs)}</span>
-                  </a>
-                  <button type="button" className="btn btn-small btn-primary" onClick={() => floorRepo.setLineStatus([r.line.id], 'served').catch(e => onError(errText(e)))}>
-                    Đã bưng
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       )}
       {page === 'orders' && <OrdersPage floor={floor} now={now} role={role} />}
       {page === 'map' && <FloorMap floor={floor} repo={floorRepo} now={now} role={role} me={me} online={online} onError={onError} />}

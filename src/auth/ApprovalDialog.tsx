@@ -1,10 +1,11 @@
-// "Quản lý duyệt": a manager or the owner picks their name and enters their PIN on this device. The server
+// "Quản lý duyệt": someone whose role may do this themselves (APPROVAL_PERM: pay.discount, order.void_sent; the owner
+// always) picks their name and enters their PIN on this device. The server
 // (verify_manager_pin) returns a short-lived single-use token for exactly this action; wrong PINs count to the lock.
 
 import { useEffect, useState } from 'react'
 import { errText } from '../floor/hooks'
 import type { ApprovalPrompt, Approved } from './context'
-import { isManager } from './guards'
+import { APPROVAL_PERM, roleCan } from './permissions'
 import { PinPad } from './PinPad'
 import type { AuthRepo } from './repo'
 import { ROLE_LABEL, type RosterEntry } from './types'
@@ -19,13 +20,13 @@ export function ApprovalDialog(props: { repo: AuthRepo; prompt: ApprovalPrompt; 
   useEffect(() => {
     repo.roster().then(
       r => {
-        const m = r.filter(x => isManager(x.role))
+        const m = r.filter(x => roleCan(x.role, APPROVAL_PERM[prompt.action]))
         setManagers(m)
         if (m.length === 1) setPick(m[0].id)
       },
       e => setError(errText(e)),
     )
-  }, [repo])
+  }, [repo, prompt.action])
   const manager = managers?.find(m => m.id === pick)
   const submit = async (pin: string) => {
     if (!pick) return
@@ -75,7 +76,7 @@ export function ApprovalDialog(props: { repo: AuthRepo; prompt: ApprovalPrompt; 
                   {m.lockedUntil && ' 🔒'}
                 </button>
               ))}
-              {managers && !managers.length && <span className="muted">Chưa có quản lý nào đăng ký PIN.</span>}
+              {managers && !managers.length && <span className="muted">Chưa có ai được quyền duyệt việc này: chủ quán cấp ở Nhân viên → Phân quyền.</span>}
             </div>
           </div>
           {manager ? (

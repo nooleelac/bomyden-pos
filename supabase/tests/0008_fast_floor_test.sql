@@ -25,7 +25,7 @@ select t_ok(not exists (select 1 from pg_policies where schemaname = 'public'
                 or coalesce(with_check, '') ~ '(?<!SELECT )(reader_role|my_role|my_staff_id)\(\)')),
             'every policy works the caller out once per query') as check;
 select t_ok(exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'bills' and policyname = 'read_money'
-              and qual like '%SELECT reader_role()%'), 'bills still read by role') as check;
+              and qual like '%SELECT reader_can(%'), 'bills read by permission (0009), once per query') as check;
 select t_ok(not has_function_privilege('anon', 'get_floor_state()', 'execute')
             and has_function_privilege('authenticated', 'get_floor_state()', 'execute'), 'get_floor_state for signed-in devices only') as check;
 

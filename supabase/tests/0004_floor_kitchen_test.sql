@@ -77,7 +77,7 @@ select id as o3 from open_table(:'t3', 6) \gset
 select t_ok((select id from open_table(:'t3', 2)) = :'o3', 'a second open of the same table returns the same order') as check;
 select t_err(format('select open_table(%L, 0)', :'t4'), 'Số khách%', 'guests 1–99') as check;
 set test.uid = :'K';
-select t_err(format('select open_table(%L, 2)', :'t4'), 'Chỉ phục vụ%', 'kitchen account cannot open a table') as check;
+select t_err(format('select open_table(%L, 2)', :'t4'), 'Chưa có quyền%', 'kitchen account cannot open a table') as check;
 set test.uid = :'M';
 update areas set active = false where id = :'a2';
 set test.uid = :'W';
@@ -114,7 +114,7 @@ select t_ok((select delivery_table_id is null from order_items where order_id = 
 -- ---------------------------------------------------------------- item states, bump, recall
 select id as l_steak from order_items i where order_id = :'o3' and menu_item_id = :'steak' \gset
 select t_err(format('update order_items set status = %L where id = %L', 'cooking', :'l_steak'), '%permission denied%', 'status changes only through the RPCs') as check;
-select t_err(format('select set_item_status(array[%L]::uuid[], %L)', :'l_steak', 'cooking'), 'Chỉ máy bếp%', 'waiter cannot start cooking') as check;
+select t_err(format('select set_item_status(array[%L]::uuid[], %L)', :'l_steak', 'cooking'), 'Chưa có quyền%', 'waiter cannot start cooking') as check;
 set test.uid = :'K';
 select count(*) from set_item_status(array[:'l_steak']::uuid[], 'cooking');
 select count(*) from set_item_status(array[:'l_steak']::uuid[], 'ready');
@@ -125,7 +125,7 @@ reset role;
 update order_items set started_at = now() - interval '5 minutes' where id = :'l_steak';
 set role authenticated;
 select t_err(format('select set_item_status(array[%L]::uuid[], %L)', :'l_steak', 'new'), 'Quá 2 phút%', 'after 2 minutes only a manager steps back') as check;
-select t_err(format('select set_item_status(array[%L]::uuid[], %L)', :'l_steak', 'served'), '%không bấm Đã bưng', 'kitchen does not mark served') as check;
+select t_err(format('select set_item_status(array[%L]::uuid[], %L)', :'l_steak', 'served'), 'Chưa có quyền%', 'kitchen does not mark served') as check;
 
 select ticket_key(i) as k_grill from order_items i where id = :'l_steak' \gset
 select bumped_at is not null as bumped from bump_ticket(:'k_grill');
@@ -223,7 +223,7 @@ select bill_print_count from request_bill(:'o5a');
 select t_ok((select bill_requested_at is not null from orders where id = :'o5a'), 'Chờ thanh toán') as check;
 select count(*) from send_order_lines(:'o5a', jsonb_build_array(:'beer6'::jsonb));
 select t_ok((select bill_requested_at is null from orders where id = :'o5a'), 'ordering more makes the pre-bill stale') as check;
-select t_err(format('select begin_payment(%L)', :'o5a'), 'Chỉ thu ngân%', 'waiter cannot open payment') as check;
+select t_err(format('select begin_payment(%L)', :'o5a'), 'Chưa có quyền%', 'waiter cannot open payment') as check;
 set test.uid = :'C';
 select paying_at is not null from begin_payment(:'o5a');
 set test.uid = :'W';
@@ -232,13 +232,10 @@ set test.uid = :'C';
 select (calc_bill(:'o5a') ->> 'total')::int as total_5a \gset
 select id is not null as shift_opened from open_shift(0);
 select bill_no is not null from pay_order(:'o5a', 0, jsonb_build_array(jsonb_build_object('method', 'cash', 'amount', :total_5a)));
-select t_ok((select needs_cleaning from tables where id = :'t5') = false, '5-B still seated: table 5 not Chờ dọn yet') as check;
 select (calc_bill(:'o5b') ->> 'total')::int as total_5b \gset
 select bill_no is not null from pay_order(:'o5b', 0, jsonb_build_array(jsonb_build_object('method', 'bank', 'amount', :total_5b)));
-select t_ok((select needs_cleaning from tables where id = :'t5'), 'all orders paid: Chờ dọn') as check;
 set test.uid = :'W';
-select needs_cleaning from mark_table_clean(:'t5');
-select t_ok((select id from open_table(:'t5', 2)) is not null, 'Dọn xong -> free and opens again') as check;
+select t_ok((select id from open_table(:'t5', 2)) is not null, 'all orders paid -> table free, opens again at once') as check;
 
 -- ---------------------------------------------------------------- tables: never out of use with an open order
 set test.uid = :'M';

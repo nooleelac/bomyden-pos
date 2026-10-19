@@ -73,7 +73,7 @@ select t_ok(my_device() is null, 'my_device() is null for a plain user') as chec
 set test.uid = :'D1';
 select t_ok((select array_agg(name order by name) from signin_roster()) = '{Bếp nướng,Chủ quán,Hùng,Lan,"Quản lý Hà"}', 'POS roster lists everyone active') as check;
 select t_ok(my_staff_id() is null and my_role() is null, 'a device without a signed-in person is nobody') as check;
-select t_err(format('select open_table(%L, 2)', :'t1'), 'Chỉ phục vụ%', 'no order without a sign-in') as check;
+select t_err(format('select open_table(%L, 2)', :'t1'), 'Đăng nhập trước%', 'no order without a sign-in') as check;
 select t_ok((select count(*) from orders) = 0 and (select count(*) from staff) = 0, 'no reads without a sign-in') as check;
 
 -- ---------------------------------------------------------------- PIN sign-in and lockout (5 misses -> 5 minutes)
@@ -108,7 +108,7 @@ select count(*) as sent from send_order_lines(:'o1', jsonb_build_array(:'two'::j
 select t_ok((select opened_by = :'s_hung' from orders where id = :'o1'), 'order opened by Hùng') as check;
 select t_as(null) \g /dev/null
 select t_ok((select count(*) from orders) = 1, 'Realtime-style read without the header: device session still reads') as check;
-select t_err(format('select open_table(%L, 2)', :'t2'), 'Chỉ phục vụ%', 'writes need the header') as check;
+select t_err(format('select open_table(%L, 2)', :'t2'), 'Đăng nhập trước%', 'writes need the header') as check;
 select t_as('not-a-token') \g /dev/null
 select t_ok(my_staff_id() is null, 'a wrong token is nobody') as check;
 set test.uid = :'D2';
@@ -121,10 +121,10 @@ select t_ok(touch_session() > now() + interval '4 minutes', 'touch_session pushe
 -- money is for cashiers and managers
 select t_ok((select count(*) from bills) = 0 and (select count(*) from shifts) = 0, 'waiter reads no bills or shifts (RLS)') as check;
 select t_ok((select count(*) from audit_log) = 0, 'waiter reads no audit log') as check;
-select t_err('select staff_admin_list()', 'Chỉ quản lý%', 'waiter cannot open the staff list') as check;
-select t_err(format('select staff_save(null, %L, %L, %L)', 'Tý', 'waiter', '7531'), 'Chỉ quản lý%', 'waiter cannot add staff') as check;
+select t_err('select staff_admin_list()', 'Chưa có quyền%', 'waiter cannot open the staff list') as check;
+select t_err(format('select staff_save(null, %L, %L, %L)', 'Tý', 'waiter', '7531'), 'Chưa có quyền%', 'waiter cannot add staff') as check;
 select t_err(format('update staff set role = %L where id = %L', 'manager', :'s_hung'), 'permission denied%', 'nobody edits staff rows directly') as check;
-select t_ok((verify_manager_pin(:'s_hung', '2580', 'void_order', :'o1') ->> 'error') = 'Chỉ quản lý hoặc chủ quán duyệt được', 'a waiter cannot approve') as check;
+select t_ok((verify_manager_pin(:'s_hung', '2580', 'void_order', :'o1') ->> 'error') = 'Người này chưa có quyền duyệt việc này', 'a waiter cannot approve') as check;
 
 -- ---------------------------------------------------------------- void after Gửi bếp needs a manager (default void_approval = 'sent')
 select id as l1 from order_items where order_id = :'o1' \gset
@@ -247,12 +247,12 @@ set test.uid = :'DK';
 select t_as(null) \g /dev/null
 select kind from register_device(:'code_k');
 select t_ok((select array_agg(name order by name) from signin_roster()) = '{Bếp nướng,Chủ quán,Minh,"Quản lý Hà"}', 'kitchen roster: kitchen accounts and managers') as check;
-select t_ok((staff_sign_in(:'s_lan', '3691') ->> 'error') = 'Máy bếp chỉ đăng nhập tài khoản bếp hoặc quản lý', 'cashier cannot sign in on the kitchen screen') as check;
+select t_ok((staff_sign_in(:'s_lan', '3691') ->> 'error') = 'Máy bếp chỉ đăng nhập người có quyền Màn hình bếp', 'cashier cannot sign in on the kitchen screen') as check;
 select staff_sign_in(:'s_bep', '4826') as k_in \gset
 select t_ok((:'k_in'::jsonb ->> 'expires_at') is null, 'kitchen account: no idle sign-out') as check;
 select t_as(:'k_in'::jsonb ->> 'token') \g /dev/null
 select t_ok(touch_session() is null, 'touching a kitchen session keeps it open-ended') as check;
-select t_err(format('select open_table(%L, 2)', :'t1'), 'Chỉ phục vụ%', 'kitchen cannot open tables') as check;
+select t_err(format('select open_table(%L, 2)', :'t1'), 'Chưa có quyền%', 'kitchen cannot open tables') as check;
 select t_ok((select count(*) from bills) = 0, 'kitchen reads no bills') as check;
 select t_ok((select count(*) from order_items) > 0, 'kitchen reads the lines') as check;
 

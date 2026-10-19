@@ -1,4 +1,4 @@
-// Floor map: one page per area, one tile per table, colour from the orders (never set by hand).
+// Floor map: Tất cả (every area, one block each) or one page per area, one tile per table, colour from the orders (never set by hand).
 // Tap a free table to open it straight into Gọi món, an occupied one to enter its order (choose the order when the
 // table is shared), long-press (or right-click) for the quick menu (on a free table: guest count and gộp bàn).
 // Takeaway orders sit in their own column.
@@ -12,15 +12,16 @@ import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableSt
 import { GuestPicker, Sheet } from './Sheet'
 
 const TAKEAWAY = 'takeaway'
+const ALL = 'all'
 
 export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date; role: Role; me: string; online: boolean; onError: (m: string) => void }) {
-  const { floor, repo, now, role } = props
+  const { floor, repo, now } = props
   const areas = [...floor.areas].sort((a, b) => a.sort - b.sort)
   const [areaId, setAreaId] = useState(() => {
     try {
-      return sessionStorage.getItem('bmd-area') ?? areas[0]?.id
+      return sessionStorage.getItem('bmd-area') ?? ALL
     } catch {
-      return areas[0]?.id
+      return ALL
     }
   })
   const [openFor, setOpenFor] = useState<string | null>(null)
@@ -28,13 +29,16 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   const [sharedFor, setSharedFor] = useState<string | null>(null)
   const [takeaway, setTakeaway] = useState(false)
   const area = areas.find(a => a.id === areaId) ?? areas[0]
-  const seeAmounts = role !== 'waiter' || floor.settings.waiterSeesAmounts
   const fail = (e: unknown) => props.onError(e instanceof Error ? e.message : String(e))
 
   const tiles = area ? areaTables(floor, area.id).map(t => tableTile(floor, t, now)) : []
   const allTiles = floor.tables.filter(t => t.active).map(t => tableTile(floor, t, now))
   const count = (ts: TableTile[], st: TableState) => ts.filter(t => t.state === st).length
-  const shown = tiles
+  // Tất cả: every area's tables, one block per area
+  const showAll = areaId === ALL
+  const sections = showAll
+    ? areas.map(a => ({ id: a.id, name: a.name, tiles: areaTables(floor, a.id).map(t => tableTile(floor, t, now)) })).filter(x => x.tiles.length > 0)
+    : [{ id: area?.id ?? '', name: '', tiles }]
   const takeaways = floor.orders.filter(o => o.kind === 'takeaway' && o.status === 'open').sort((a, b) => (a.takeawayNo ?? 0) - (b.takeawayNo ?? 0))
 
   // One tap on a free table opens it with its seat count as the guest count (editable on the order screen) and goes
@@ -53,7 +57,6 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   }
 
   const tap = (t: TableTile) => {
-    if (t.state === 'cleaning') return repo.markClean(t.table.id).catch(fail)
     if (t.orders.length === 0) {
       if (t.state === 'closed') return props.onError('Khu này đang tạm đóng')
       if (!props.online) return props.onError('Mất kết nối: chưa mở bàn mới được')
@@ -77,7 +80,6 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   const tileSub = (t: TableTile) =>
     t.state === 'free' ? 'Bàn trống'
     : t.state === 'closed' ? 'Tạm đóng'
-    : t.state === 'cleaning' ? 'Chạm: dọn xong'
     : t.state === 'paying' ? 'Đang thanh toán'
     : shortMinutes(now.getTime() - new Date(t.seatedSince!).getTime())
 
@@ -93,8 +95,11 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
       </p>
       <div className="floor-body">
         <nav className="area-rail" aria-label="Khu vực">
+          <button type="button" className={'rail-item' + (showAll ? ' is-on' : '')} onClick={() => pickArea(ALL)}>
+            Tất cả
+          </button>
           {areas.map(a => (
-            <button key={a.id} type="button" className={'rail-item' + (!showTakeaway && a.id === area?.id ? ' is-on' : '') + (a.active ? '' : ' is-closed')} onClick={() => pickArea(a.id)}>
+            <button key={a.id} type="button" className={'rail-item' + (!showTakeaway && !showAll && a.id === area?.id ? ' is-on' : '') + (a.active ? '' : ' is-closed')} onClick={() => pickArea(a.id)}>
               {a.name}
             </button>
           ))}
@@ -120,7 +125,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
                       <b>{orderTitle(floor, o)}</b>
                       <span className="muted small">
                         {since(o.openedAt)}
-                        {seeAmounts && ` · ${vnd(orderAmount(floor, o.id))}`}
+                        {` · ${vnd(orderAmount(floor, o.id))}`}
                       </span>
                     </a>
                   </li>
@@ -128,28 +133,37 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
               </ul>
             </section>
           ) : (
-              <ul className="table-grid">
-                {shown.map(t => (
-                  <li key={t.table.id}>
-                    <button
-                      type="button"
-                      className={`table-tile st-${t.state}`}
-                      aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}`}
-                      onClick={() => tap(t)}
-                      onContextMenu={e => {
-                        e.preventDefault()
-                        if (t.orders.length) return setPickFor(t)
-                        if (t.state === 'free' && props.online) setOpenFor(t.table.id)
-                      }}
-                    >
-                      <b className="tile-name">{t.table.name}</b>
-                      <span className="tile-sub">{tileSub(t)}</span>
-                      {seeAmounts && t.amount > 0 && <span className="tile-amount">{vnd(t.amount)}</span>}
-                    </button>
-                  </li>
-                ))}
-                {shown.length === 0 && <li className="empty">Không có bàn phù hợp</li>}
-              </ul>
+            sections.map(sec => (
+              <section key={sec.id} aria-label={sec.name || undefined}>
+                {showAll && (
+                  <h3 className="section-head floor-area-head">
+                    <span>{sec.name}</span>
+                  </h3>
+                )}
+                <ul className="table-grid">
+                  {sec.tiles.map(t => (
+                    <li key={t.table.id}>
+                      <button
+                        type="button"
+                        className={`table-tile st-${t.state}`}
+                        aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}`}
+                        onClick={() => tap(t)}
+                        onContextMenu={e => {
+                          e.preventDefault()
+                          if (t.orders.length) return setPickFor(t)
+                          if (t.state === 'free' && props.online) setOpenFor(t.table.id)
+                        }}
+                      >
+                        <b className="tile-name">{t.table.name}</b>
+                        <span className="tile-sub">{tileSub(t)}</span>
+                        {t.amount > 0 && <span className="tile-amount">{vnd(t.amount)}</span>}
+                      </button>
+                    </li>
+                  ))}
+                  {sec.tiles.length === 0 && <li className="empty">Không có bàn phù hợp</li>}
+                </ul>
+              </section>
+            ))
           )}
         </div>
       </div>
@@ -177,7 +191,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
                   <span className="muted small">
                     {o.guestCount} khách · {formatDuration(now.getTime() - new Date(o.openedAt).getTime())}
                     {o.billRequestedAt && ' · chờ thanh toán'}
-                    {seeAmounts && ` · ${vnd(orderAmount(floor, o.id))}`}
+                    {` · ${vnd(orderAmount(floor, o.id))}`}
                   </span>
                 </a>
               </li>
@@ -206,7 +220,7 @@ function OpenTableSheet(props: { floor: FloorState; tableId: string; onClose: ()
   const t = floor.tables.find(x => x.id === props.tableId)!
   const [guests, setGuests] = useState(0)
   const [extra, setExtra] = useState<string[]>([])
-  const freeNear = areaTables(floor, t.areaId).filter(x => x.id !== t.id && x.active && openOrdersAt(floor, x.id).length === 0 && !x.needsCleaning)
+  const freeNear = areaTables(floor, t.areaId).filter(x => x.id !== t.id && x.active && openOrdersAt(floor, x.id).length === 0)
   const seats = t.seats + extra.reduce((n, id) => n + (floor.tables.find(x => x.id === id)?.seats ?? 0), 0)
   return (
     <Sheet

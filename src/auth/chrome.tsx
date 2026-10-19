@@ -5,7 +5,7 @@
 
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './context'
-import { SCREEN_LABEL, canOpen, homeRoute, isSettingsScreen, navFor, screenOf, settingsFor } from './guards'
+import { SCREEN_LABEL, canOpen, homeRoute, isSettingsScreen, manageFor, navFor, screenOf, settingsFor } from './guards'
 import { ROLE_LABEL } from './types'
 import { ReposContext, useNow, useRoute, useSource } from '../floor/hooks'
 import { clock } from '../floor/logic'
@@ -158,6 +158,7 @@ export function BottomNav() {
 function Drawer(props: { onClose: () => void }) {
   const { session, signOut } = useAuth()
   const items = settingsFor(session.role)
+  const manage = manageFor(session.role)
   return (
     <div className="drawer-backdrop" onClick={props.onClose}>
       <aside className="drawer" aria-label="Menu" onClick={e => e.stopPropagation()}>
@@ -177,6 +178,12 @@ function Drawer(props: { onClose: () => void }) {
           {navFor(session.role).map(l => (
             <a key={l.href} href={l.href}>
               <span aria-hidden>{l.icon}</span> {l.label}
+            </a>
+          ))}
+          {manage.length > 0 && <span className="drawer-section">📊 Quản lý</span>}
+          {manage.map(i => (
+            <a key={i.href} href={i.href} className="drawer-sub">
+              <span aria-hidden>{i.icon}</span> {i.label}
             </a>
           ))}
           {items.length > 0 && (

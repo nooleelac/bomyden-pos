@@ -1,7 +1,8 @@
 // Shop profile used until shop_settings is filled in (Supabase mode reads shop_settings instead).
 // ĐIỀN THÔNG TIN THẬT: name, address, phone, tax code and the bank account below are placeholders.
 
-import type { ShopProfile } from '../floor/types'
+import type { PayMethod } from '../lib/billing'
+import type { PaymentSettings, ShopProfile } from '../floor/types'
 
 export const SAMPLE_SHOP: ShopProfile = {
   sample: true,
@@ -25,3 +26,22 @@ export const REGISTER = 'Quầy 1'
 
 /** Bill discount reasons (spec: bắt buộc chọn lý do). */
 export const DISCOUNT_REASONS = ['Khách quen', 'Món ra chậm', 'Món lỗi', 'Nhân viên ăn', 'Chủ quán mời', 'Khác'] as const
+
+/** Payment methods in the order the cashier sees them. */
+export const PAY_METHODS: PayMethod[] = ['cash', 'bank', 'card']
+
+/** Methods the shop takes (Cài đặt → Thanh toán); all three until the shop turns one off. */
+export const enabledMethods = (shop: ShopProfile): PayMethod[] => PAY_METHODS.filter(m => shop.payMethods?.[m] ?? true)
+
+/** VAT lines on printed bills: yes until the shop turns them off. */
+export const showVat = (shop: ShopProfile): boolean => shop.showVat ?? true
+
+/** What Cài đặt → Thanh toán edits, with the defaults filled in. */
+export function paymentSettings(shop: ShopProfile): PaymentSettings {
+  return {
+    payMethods: { cash: true, bank: true, card: true, ...shop.payMethods },
+    vatRate: shop.vatRate ?? null,
+    showVat: showVat(shop),
+    bankBin: shop.bankBin, bankName: shop.bankName, bankAccount: shop.bankAccount, bankAccountName: shop.bankAccountName,
+  }
+}

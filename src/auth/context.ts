@@ -1,6 +1,7 @@
 // Who is signed in on this screen, and the manager-approval prompt. Provided by AuthGate.
 
 import { createContext, useContext } from 'react'
+import type { Perm, PermMatrix } from './permissions'
 import type { AuthRepo } from './repo'
 import type { ApprovalRequest, AuthSettings, Device, Session } from './types'
 
@@ -21,6 +22,10 @@ export interface AuthValue {
   session: Session
   device: Device
   settings: AuthSettings
+  /** What each role may do (the owner: everything). */
+  perms: PermMatrix
+  /** May the signed-in person do this? */
+  can: (p: Perm) => boolean
   /** Đổi người: back to the names on this device. */
   signOut: () => void
   /** Ask a manager to enter their PIN here. Resolves with the token, or null when cancelled. */

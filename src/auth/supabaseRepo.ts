@@ -5,6 +5,7 @@
 // local Postgres 16 (supabase/tests/0006_staff_auth_test.sql).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { normalizeMatrix, PERM_ROLES } from './permissions'
 import type { AuthRepo, DeviceRow } from './repo'
 import { staffToken } from './token'
 import {
@@ -158,6 +159,7 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
       return { code: s(r.code), name: s(r.name), kind, expiresAt: s(r.expires_at) }
     },
     setDeviceActive: async (id, active) => void (await rpc(db, 'device_set_active', { p_device: id, p_active: active })),
+    adminDelete: async (kind, id) => void (await rpc(db, 'admin_delete', { p_kind: kind, p_id: id })),
     async audit(limit = 100) {
       const [log, staff, devices] = await Promise.all([
         rows(db.from('audit_log').select('id, at, action, staff_id, approved_by, device_id, detail').order('at', { ascending: false }).limit(limit)),
@@ -170,9 +172,17 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
         detail: (a.detail as Record<string, unknown>) ?? {},
       }))
     },
+    async permissions() {
+      const list = await rows(db.from('role_permissions').select('role, perm'))
+      return normalizeMatrix(Object.fromEntries(PERM_ROLES.map(r => [r, list.filter(x => x.role === r).map(x => s(x.perm))])))
+    },
+    async savePermissions(role, perms) {
+      const r = await rpc<string[]>(db, 'set_role_permissions', { p_role: role, p_perms: perms })
+      return normalizeMatrix({ [role]: r ?? [] })[role]
+    },
     subscribe(onChange) {
       const ch = db.channel(`staff-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
-      for (const table of ['staff', 'devices']) ch.on('postgres_changes', { event: '*', schema: 'public', table }, onChange)
+      for (const table of ['staff', 'devices', 'role_permissions']) ch.on('postgres_changes', { event: '*', schema: 'public', table }, onChange)
       ch.subscribe()
       return () => void db.removeChannel(ch)
     },

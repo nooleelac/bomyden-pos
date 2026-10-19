@@ -15,7 +15,7 @@ import type { FloorRepo } from '../../floor/repo'
 import { GuestPicker, Sheet } from '../../floor/screens/Sheet'
 import type { FloorState, Order, Role } from '../../floor/types'
 import { payMemo, prebillData, receiptGroups, vietQr } from '../bill'
-import { DISCOUNT_REASONS } from '../config'
+import { DISCOUNT_REASONS, enabledMethods } from '../config'
 import { printBlocks } from '../print'
 import { receiptBlocks } from '../receipt'
 import { MoneyInput, QrImage, ReceiptPreview } from './ui'
@@ -54,6 +54,8 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
   const [dialog, setDialog] = useState<null | 'discount' | 'split' | 'prebill' | { qr: string }>(null)
   const [busy, setBusy] = useState(false)
   const fail = (e: unknown) => props.onError(errText(e))
+  // Cài đặt → Thanh toán: only the methods the shop takes
+  const methods = enabledMethods(floor.shop)
   const { requestApproval } = useAuth()
 
   const totals = useMemo(() => (order ? quoteBill(floor, order.id, disc?.d ?? null) : null), [floor, order, disc])
@@ -105,7 +107,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
     if (left <= 0) return
     const used = new Set(kept.map(r => r.part))
     const letters = [...LETTERS].filter(x => !used.has(x))
-    setRows([...kept, ...splitEven(left, n).map((amount, i): UiRow => ({ id: newId(), method: 'cash', amount, tendered: null, confirmed: false, part: letters[i] }))])
+    setRows([...kept, ...splitEven(left, n).map((amount, i): UiRow => ({ id: newId(), method: methods[0], amount, tendered: null, confirmed: false, part: letters[i] }))])
   }
 
   const cancel = async () => {
@@ -200,15 +202,11 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
           </div>
 
           <div className="add-pay" role="group" aria-label="Thêm cách trả">
-            <button type="button" className="btn" onClick={() => addRow('cash')}>
-              + Tiền mặt
-            </button>
-            <button type="button" className="btn" onClick={() => addRow('bank')}>
-              + Chuyển khoản
-            </button>
-            <button type="button" className="btn" onClick={() => addRow('card')}>
-              + Thẻ
-            </button>
+            {methods.map(m => (
+              <button key={m} type="button" className="btn" onClick={() => addRow(m)}>
+                + {METHOD_LABEL[m]}
+              </button>
+            ))}
           </div>
           <div className="split-row">
             <span className="muted small">Chia đều:</span>
@@ -224,7 +222,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
             )}
           </div>
 
-          {!rows.length && <p className="muted small">Chọn cách trả. Một hoá đơn trả được bằng nhiều cách: tiền mặt, chuyển khoản, thẻ.</p>}
+          {!rows.length && <p className="muted small">Chọn cách trả.{methods.length > 1 && ` Một hoá đơn trả được bằng nhiều cách: ${methods.map(m => METHOD_LABEL[m].toLowerCase()).join(', ')}.`}</p>}
           <ul className="pay-rows">
             {rows.map(r => {
               const cash = r.method === 'cash'
@@ -241,7 +239,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
                       disabled={r.confirmed}
                       onChange={e => setRow(r.id, { method: e.target.value as PayMethod, confirmed: false, tendered: null })}
                     >
-                      {(['cash', 'bank', 'card'] as PayMethod[]).map(m => (
+                      {(['cash', 'bank', 'card'] as PayMethod[]).filter(m => methods.includes(m) || m === r.method).map(m => (
                         <option key={m} value={m}>
                           {METHOD_LABEL[m]}
                         </option>

@@ -1,0 +1,91 @@
+/* Quản lý hoá đơn and Quản lý doanh thu. Builds on menu.css tokens (.card, .chip, .btn) and the cashier list rows. */
+
+.reports-app { --cash: #2e7d32; --bank: #1565c0; --card: #6a1b9a; }
+.reports-main { max-width: 1240px; margin: 0 auto; padding: 8px 16px 0; }
+.reports-main h1 { font-size: 20px; margin: 0; }
+.reports-main h2 { font-size: 16px; margin: 0 0 8px; }
+.money-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.reports-tabs { display: flex; gap: 4px; margin: 4px 0 10px; background: var(--surface); border-radius: var(--radius); padding: 4px; box-shadow: var(--shadow); }
+.reports-tabs a { flex: 1; text-align: center; padding: 10px 8px; border-radius: 9px; color: var(--muted); font-weight: 700; text-decoration: none; }
+.reports-tabs a.is-on { background: var(--accent); color: var(--accent-ink); }
+
+.range-picker { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.range-picker .chip-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.range-picker .chip { flex: none; min-height: 38px; }
+.range-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* Hoá đơn */
+.bills-tools { display: flex; flex-direction: column; gap: 8px; }
+.bills-tools .chip { min-height: 38px; }
+.bills-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 8px 2px; font-variant-numeric: tabular-nums; }
+.bills-sum .btn { margin-left: auto; }
+.bill-day .card-head h2 { margin: 0; }
+.pay-list { list-style: none; margin: 0; padding: 0; }
+.pay-pick { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.pay-list li:last-child .pay-pick { border-bottom: 0; }
+.pay-pick-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+.bill-badges { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+
+.bill-detail { max-width: 640px; }
+.bill-detail .card-head { align-items: baseline; }
+.detail-total { font-size: 22px; font-variant-numeric: tabular-nums; }
+.detail-h { margin-top: 14px !important; font-size: 14px !important; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.bill-items { list-style: none; margin: 0; padding: 0; }
+.bill-items > li { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.bill-item { display: flex; justify-content: space-between; gap: 10px; }
+.bill-item > span:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bill-sums { margin: 10px 0 0; }
+.bill-sums > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 0; }
+.bill-sums dt, .bill-sums dd { margin: 0; }
+.bill-sums dd { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bill-total { border-top: 2px solid var(--text); margin-top: 6px; padding-top: 8px !important; font-size: 18px; font-weight: 800; }
+
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.m-cash { background: var(--cash); }
+.m-bank { background: var(--bank); }
+.m-card { background: var(--card); }
+
+/* Doanh thu */
+.kpi-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 8px 0 0; }
+@media (min-width: 900px) { .kpi-grid { grid-template-columns: 1.4fr 1fr 1fr 1fr; } }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+.kpi-big { grid-column: 1 / -1; background: var(--accent); color: var(--accent-ink); }
+@media (min-width: 900px) { .kpi-big { grid-column: auto; } }
+.kpi-label { font-size: 13px; font-weight: 600; opacity: .8; }
+.kpi-value { font-size: 20px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi-big .kpi-value { font-size: 28px; }
+.kpi-delta { font-size: 12px; font-weight: 600; }
+.kpi-delta.is-up { color: var(--ok); }
+.kpi-delta.is-down { color: var(--danger); }
+.kpi-big .kpi-delta, .kpi-big .kpi-delta .muted { color: inherit; opacity: .9; }
+
+.reports-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 12px; align-items: start; }
+@media (min-width: 900px) { .reports-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+.bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bars li { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+.bars-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bars-track { height: 14px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.bars-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; min-width: 2px; }
+.bars-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; line-height: 1.2; }
+.bars-value .small { font-weight: 400; font-size: 11px; }
+
+.method-bar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; gap: 2px; margin-bottom: 8px; }
+.method-bar > span { flex-basis: 0; min-width: 4px; }
+.method-list { list-style: none; margin: 0; padding: 0; }
+.method-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.method-list li:last-child { border-bottom: 0; }
+
+.hour-chart { display: flex; align-items: stretch; gap: 2px; height: 140px; }
+.hour-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.hour-track { flex: 1; width: 100%; display: flex; align-items: flex-end; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.hour-fill { display: block; width: 100%; background: color-mix(in srgb, var(--accent) 55%, var(--surface)); border-radius: 3px 3px 0 0; }
+.hour-fill.is-peak { background: var(--accent); }
+.hour-lbl { font-size: 11px; color: var(--muted); height: 14px; }
+
+.rank-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.rank-table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; }
+.rank-table td { padding: 6px; border-top: 1px solid var(--line); }
+.rank-table th:nth-child(n + 3), .rank-table td:nth-child(n + 3) { text-align: right; white-space: nowrap; }
+.rank-table th:first-child, .rank-table td:first-child { width: 24px; padding-left: 0; }

@@ -134,3 +134,22 @@
   background: #fff; color: #6c7a96; font: 800 30px/1 system-ui, sans-serif; box-shadow: 0 4px 16px rgba(20, 30, 50, .25); pointer-events: none;
 }
 .swipe-back.is-ready { background: #0a84ff; color: #fff; }
+
+/* Phân quyền (#/nhan-vien/quyen) */
+.perms-roles { margin: 10px 0; }
+.perms-roles .chip { position: relative; }
+.perms-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn, #b25e00); margin-left: 4px; vertical-align: middle; }
+.perms-owner { opacity: .7; cursor: default; }
+.perms-summary { display: flex; flex-direction: column; gap: 4px; }
+.perms-warn { color: var(--danger); font-weight: 700; }
+.perms-group h2 { margin: 0 0 4px; font-size: 16px; }
+.perms-list { list-style: none; margin: 0; padding: 0; }
+.perms-row { border-bottom: 1px dashed var(--line); padding: 2px 0; }
+.perms-row:last-child { border-bottom: 0; }
+.perms-row .switch { width: 100%; align-items: center; padding: 6px 0; }
+.perms-row.is-changed .perms-label::after { content: ' •'; color: var(--warn, #b25e00); }
+.perms-bar { position: sticky; bottom: calc(70px + env(safe-area-inset-bottom)); display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 0; background: var(--bg); z-index: 2; }
+/* no tab bar when someone has a single work screen */
+.staff-app:not(:has(.bottom-nav)) .perms-bar { bottom: 0; }
+.perms-overview summary { cursor: pointer; font-weight: 700; }
+.perms-cell { text-align: center; }

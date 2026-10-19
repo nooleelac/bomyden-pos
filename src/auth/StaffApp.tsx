@@ -1,6 +1,8 @@
-// #/nhan-vien (quản lý, chủ quán): staff with role and PIN status (add, edit, ngừng làm, đặt lại PIN),
-// devices (thêm máy with a one-time code, khoá máy), sign-in settings, and the audit log.
-// Routes: #/nhan-vien  #/nhan-vien/may  #/nhan-vien/caidat  #/nhan-vien/nhatky
+// #/nhan-vien: staff with role and PIN status (add, edit, ngừng làm, đặt lại PIN), Phân quyền (chủ quán: what each
+// role may do), devices (thêm máy with a one-time code, khoá máy), sign-in settings, and the audit log. Each tab
+// shows only with its permission (staffTabsFor). With Xoá vĩnh viễn (admin.delete) people and devices can also be
+// deleted for good.
+// Routes: #/nhan-vien  #/nhan-vien/quyen  #/nhan-vien/may  #/nhan-vien/caidat  #/nhan-vien/nhatky
 
 import { useCallback, useEffect, useState } from 'react'
 import { Sheet } from '../floor/screens/Sheet'
@@ -8,13 +10,16 @@ import { errText, useRoute } from '../floor/hooks'
 import '../floor/floor.css'
 import { SettingsBack, TopBar } from './chrome'
 import { useAuth } from './context'
-import { isManager } from './guards'
+import { isManager, staffTabsFor } from './guards'
+import { roleCan } from './permissions'
+import { PermissionsScreen } from './PermissionsScreen'
 import { pinProblem } from './pin'
 import type { DeviceRow } from './repo'
 import { ROLE_LABEL, ROLES, type AuditEntry, type AuthSettings, type DeviceCode, type DeviceKind, type Role, type StaffRecord } from './types'
 
 const TABS = [
   { id: '', label: 'Nhân viên' },
+  { id: 'quyen', label: 'Phân quyền' },
   { id: 'may', label: 'Máy' },
   { id: 'caidat', label: 'Cài đặt' },
   { id: 'nhatky', label: 'Nhật ký' },
@@ -29,7 +34,9 @@ const when = (iso: string | null) => {
 export function StaffApp() {
   const auth = useAuth()
   const route = useRoute()
-  const tab = TABS.find(t => t.id === (route[1] ?? ''))?.id ?? ''
+  const allowed = staffTabsFor(auth.session.role)
+  const tabs = TABS.filter(t => allowed.includes(t.id))
+  const tab = tabs.find(t => t.id === (route[1] ?? ''))?.id ?? tabs[0]?.id
   const [toast, setToast] = useState<{ text: string; ok?: boolean } | null>(null)
   const onError = useCallback((e: unknown) => setToast({ text: errText(e) }), [])
   const onInfo = useCallback((m: string) => setToast({ text: m, ok: true }), [])
@@ -44,7 +51,7 @@ export function StaffApp() {
       <SettingsBack />
       {auth.repo.source === 'sample' && <div className="sample-banner">Nhân viên mẫu trên trình duyệt này. Đổi tên và đặt PIN thật trước khi dùng ở quán.</div>}
       <nav className="tabs" aria-label="Nhân viên">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <a key={t.id} href={`#/nhan-vien${t.id ? '/' + t.id : ''}`} className={'tab' + (t.id === tab ? ' is-on' : '')} aria-current={t.id === tab ? 'page' : undefined}>
             {t.label}
           </a>
@@ -52,6 +59,7 @@ export function StaffApp() {
       </nav>
       <main className="staff-main">
         {tab === '' && <StaffList onError={onError} onInfo={onInfo} />}
+        {tab === 'quyen' && <PermissionsScreen onError={onError} onInfo={onInfo} />}
         {tab === 'may' && <Devices onError={onError} onInfo={onInfo} />}
         {tab === 'caidat' && <Settings onError={onError} onInfo={onInfo} />}
         {tab === 'nhatky' && <Audit onError={onError} />}
@@ -67,7 +75,7 @@ export function StaffApp() {
 
 type Notify = { onError: (e: unknown) => void; onInfo: (m: string) => void }
 
-/** Roles the signed-in person may give: owners any, managers waiter / kitchen / cashier. */
+/** Roles the signed-in person may give: owners any, others (with staff.manage) waiter / kitchen / cashier. */
 function assignable(me: Role): Role[] {
   return me === 'owner' ? ROLES : ROLES.filter(r => !isManager(r))
 }
@@ -90,6 +98,17 @@ function StaffList(props: Notify) {
     try {
       await repo.setStaffActive(r.id, !r.active)
       props.onInfo(r.active ? `${r.name} đã ngừng làm` : `${r.name} làm lại`)
+      load()
+    } catch (e) {
+      onError(e)
+    }
+  }
+  const purge = roleCan(session.role, 'admin.delete')
+  const remove = async (r: StaffRecord) => {
+    if (!confirm(`Xoá vĩnh viễn ${r.name}? Mã PIN và phiên đăng nhập bị xoá; hoá đơn, ca cũ vẫn giữ nhưng không còn tên người này. Không khôi phục được.`)) return
+    try {
+      await repo.adminDelete('staff', r.id)
+      props.onInfo(`Đã xoá ${r.name}`)
       load()
     } catch (e) {
       onError(e)
@@ -134,6 +153,11 @@ function StaffList(props: Notify) {
                 {r.id !== session.staffId && (
                   <button type="button" className={'btn btn-small' + (r.active ? ' btn-danger' : '')} onClick={() => toggle(r)}>
                     {r.active ? 'Ngừng làm' : 'Làm lại'}
+                  </button>
+                )}
+                {purge && r.id !== session.staffId && (
+                  <button type="button" className="btn btn-small btn-danger" onClick={() => remove(r)}>
+                    Xoá
                   </button>
                 )}
               </div>
@@ -255,11 +279,11 @@ function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boo
 }
 
 const ROLE_HELP: Record<Role, string> = {
-  waiter: 'Mở bàn, gọi món, gửi bếp, bưng món. Huỷ món đã gửi bếp cần quản lý duyệt.',
-  cashier: 'Thu tiền, in hoá đơn, mở và chốt ca. Giảm giá cần quản lý duyệt.',
-  kitchen: 'Chỉ màn hình bếp. Không tự đăng xuất khi để yên.',
-  manager: 'Mọi màn hình, duyệt giảm giá và huỷ món bằng PIN, quản lý phục vụ, bếp, thu ngân.',
-  owner: 'Như quản lý, thêm: quản lý cả quản lý và chủ quán.',
+  waiter: 'Mặc định: mở bàn, gọi món, gửi bếp, bưng món. Chủ quán đổi được ở Phân quyền.',
+  cashier: 'Mặc định: thu tiền, in hoá đơn, mở và chốt ca, bàn tạm. Chủ quán đổi được ở Phân quyền.',
+  kitchen: 'Mặc định: màn hình bếp, báo hết món. Không tự đăng xuất khi để yên.',
+  manager: 'Mặc định: mọi việc trừ phân quyền và quản lý quản lý / chủ quán. Chủ quán đổi được ở Phân quyền.',
+  owner: 'Mọi quyền, phân quyền cho các vai trò, quản lý cả quản lý và chủ quán.',
 }
 
 function PinSheet(props: { who: StaffRecord; onClose: () => void; onSave: (pin: string) => Promise<void> }) {
@@ -294,8 +318,9 @@ function PinSheet(props: { who: StaffRecord; onClose: () => void; onSave: (pin: 
 }
 
 function Devices(props: Notify) {
-  const { repo, device } = useAuth()
+  const { repo, device, session } = useAuth()
   const [list, setList] = useState<DeviceRow[] | null>(null)
+  const purge = roleCan(session.role, 'admin.delete')
   const [name, setName] = useState('')
   const [kind, setKind] = useState<DeviceKind>('pos')
   const [code, setCode] = useState<DeviceCode | null>(null)
@@ -330,6 +355,18 @@ function Devices(props: Notify) {
                 >
                   {d.active ? 'Khoá máy' : 'Mở lại'}
                 </button>
+                {purge && (
+                  <button
+                    type="button"
+                    className="btn btn-small btn-danger"
+                    onClick={() =>
+                      confirm(`Xoá vĩnh viễn máy ${d.name}? Mọi người trên máy đó bị đăng xuất; muốn dùng lại phải đăng ký mã mới.`) &&
+                      repo.adminDelete('device', d.id).then(() => (props.onInfo(`Đã xoá máy ${d.name}`), load()), onError)
+                    }
+                  >
+                    Xoá
+                  </button>
+                )}
               </div>
             )}
           </li>
@@ -422,7 +459,10 @@ const ACTION_LABEL: Record<string, string> = {
   discount: 'Giảm giá', void_item: 'Huỷ món', void_order: 'Huỷ đơn', staff_add: 'Thêm nhân viên', staff_edit: 'Sửa nhân viên',
   staff_off: 'Ngừng làm', staff_on: 'Làm lại', pin_reset: 'Đặt lại PIN', device_code: 'Tạo mã máy', device_registered: 'Đăng ký máy',
   device_on: 'Mở lại máy', device_off: 'Khoá máy', settings: 'Đổi cài đặt', open_shift: 'Mở ca', close_shift: 'Chốt ca', reprint: 'In lại hoá đơn',
-  modify_item: 'Sửa món', sold_out: 'Báo hết', restock: 'Có lại',
+  modify_item: 'Sửa món', sold_out: 'Báo hết', restock: 'Có lại', delete: 'Xoá vĩnh viễn',
+}
+const DELETE_KIND: Record<string, string> = {
+  category: 'nhóm món', item: 'món', group: 'nhóm tuỳ chọn', area: 'khu', table: 'bàn', order: 'đơn / hoá đơn', shift: 'ca', staff: 'nhân viên', device: 'máy',
 }
 const FOR_LABEL: Record<string, string> = { discount: 'giảm giá', void_item: 'huỷ món', void_order: 'huỷ đơn' }
 
@@ -430,6 +470,7 @@ function auditText(a: AuditEntry): string {
   const d = a.detail
   const parts: string[] = []
   if (a.action === 'approval' && d.for) parts.push(FOR_LABEL[String(d.for)] ?? String(d.for))
+  if (a.action === 'delete' && d.kind) parts.push(DELETE_KIND[String(d.kind)] ?? String(d.kind))
   if (d.name && a.action !== 'sign_in') parts.push(String(d.name))
   if (d.qty) parts.push(`× ${d.qty}`)
   if (typeof d.amount === 'number') parts.push(`${d.amount.toLocaleString('vi-VN')}đ`)
@@ -457,7 +498,7 @@ function Audit(props: { onError: (e: unknown) => void }) {
           Tải lại
         </button>
       </div>
-      <p className="muted small">Ai làm gì, lúc nào, ai duyệt, trên máy nào. Không sửa hay xoá được.</p>
+      <p className="muted small">Ai làm gì, lúc nào, ai duyệt, trên máy nào (cả những lần xoá vĩnh viễn). Không sửa hay xoá được.</p>
       <div className="audit-wrap">
         <table className="audit">
           <thead>

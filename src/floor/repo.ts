@@ -3,11 +3,12 @@
 // BroadcastChannel + localStorage so a waiter tab and a kitchen tab show the same orders.
 // createSupabaseFloorRepo (supabaseRepo.ts) runs the same screens on the database with Realtime.
 
+import { PERM_LABEL, roleCan } from '../auth/permissions'
 import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import * as E from './engine'
 import { seedFloor } from './seed'
-import type { Actor, Area, FloorState, LineStatus, SendLineInput, Table } from './types'
+import type { Actor, Area, BillHistory, FloorState, LineStatus, PaymentSettings, SendLineInput, Table } from './types'
 
 export interface FloorRepo {
   readonly source: 'sample' | 'supabase'
@@ -31,6 +32,8 @@ export interface FloorRepo {
   decideModify(noticeId: string, accept: boolean): Promise<void>
   ackNotice(id: string): Promise<void>
   setLineStatus(lineIds: string[], to: LineStatus): Promise<void>
+  /** Phần đi kèm made at another station (salad at Quầy rau for a steak): the same steps as a line, set_part_status (0012). */
+  setPartStatus(parts: E.PartRef[], to: LineStatus): Promise<void>
   bumpTicket(key: string): Promise<void>
   recallTicket(key: string): Promise<void>
   chaseOrder(orderId: string): Promise<void>
@@ -49,9 +52,14 @@ export interface FloorRepo {
   printBill(billId: string): Promise<number>
   openShift(inp: { openingFloat: number; register?: string }): Promise<string>
   closeShift(inp: { shiftId: string; countedDetail: Record<string, number>; note?: string }): Promise<void>
-  markClean(tableId: string): Promise<void>
+  /** Bills paid from `from` (inclusive) to `to` (exclusive), ISO times, oldest first, with their dishes. */
+  billHistory(from: string, to: string): Promise<BillHistory>
   saveArea(a: Area): Promise<void>
   saveTable(t: Table): Promise<void>
+  /** Cài đặt → Thanh toán (settings.edit): payment methods, bank account, VAT rate, VAT on receipts. */
+  saveShop(p: PaymentSettings): Promise<void>
+  /** Xoá vĩnh viễn (admin.delete, admin_delete in 0010). A bill is deleted with its order. */
+  adminDelete(kind: E.FloorDeleteKind, id: string): Promise<void>
   /** Sample only: back to the sample evening. */
   reset?(): Promise<void>
   /** Supabase only: the signed-in staff member (role decides what the screens offer). */
@@ -65,18 +73,22 @@ export interface MemoryFloorOptions {
   /** Checks manager approval tokens (the sample auth repo's consumeApproval). */
   approve?: E.Ctx['approve']
   now?: () => Date
+  /** Sample bills of earlier days for the reports (Hoá đơn, Doanh thu); the floor state holds today's. */
+  history?: () => BillHistory
   /** Share state with other tabs of this browser (off in tests). */
   sync?: { channel: string; storageKey: string; reset?: () => FloorState }
 }
 
-// 2: lines carry VAT flags, bills and shifts (0005); 3: settings.voidApproval, owner role (0006)
-const STORAGE_VERSION = 3
+// 2: lines carry VAT flags, bills and shifts (0005); 3: settings.voidApproval, owner role (0006); 4: side parts (0012)
+const STORAGE_VERSION = 4
 
 export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
   const now = opts.now ?? (() => new Date())
   const listeners = new Set<() => void>()
   const changed = () => listeners.forEach(l => l())
   let state: FloorState = structuredClone(opts.initial ?? seedFloor())
+  // orders deleted for good, so the sample bills of earlier days (opts.history) leave them out too
+  const deleted = new Set<string>()
 
   let channel: BroadcastChannel | null = null
   const sync = opts.sync
@@ -148,6 +160,7 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
     decideModify: (id, accept) => run((s, c) => E.decideModify(s, id, accept, c)),
     ackNotice: id => run((s, c) => E.ackNotice(s, id, c)),
     setLineStatus: (ids, to) => run((s, c) => E.setLineStatus(s, ids, to, c)),
+    setPartStatus: (parts, to) => run((s, c) => E.setPartStatus(s, parts, to, c)),
     bumpTicket: key => run((s, c) => E.bumpTicket(s, key, c)),
     recallTicket: key => run((s, c) => E.recallTicket(s, key, c)),
     chaseOrder: id => run((s, c) => E.chaseOrder(s, id, c)),
@@ -179,9 +192,29 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
       return r.shiftId
     },
     closeShift: inp => run((s, c) => E.closeShift(s, inp, c)),
-    markClean: id => run((s, c) => E.markClean(s, id, c)),
+    async billHistory(from, to) {
+      const old = opts.history?.() ?? { bills: [], lines: [] }
+      const bills = [...old.bills.filter(b => !deleted.has(b.orderId)), ...state.bills].filter(b => b.paidAt >= from && b.paidAt < to).sort((a, b) => a.paidAt.localeCompare(b.paidAt))
+      const ids = new Set(bills.map(b => b.orderId))
+      const own = state.lines
+        .filter(l => l.status !== 'void' && ids.has(l.orderId))
+        .map(l => ({ orderId: l.orderId, name: l.name, variantName: l.variantName, qty: l.qty, amount: l.price * l.qty }))
+      return structuredClone({ bills, lines: [...old.lines.filter(l => ids.has(l.orderId)), ...own] })
+    },
     saveArea: a => run((s, c) => E.saveArea(s, a, c)),
     saveTable: t => run((s, c) => E.saveTable(s, t, c)),
+    saveShop: p => run((s, c) => E.saveShop(s, p, c)),
+    adminDelete: async (kind, id) => {
+      // a sample bill of an earlier day has no order in today's state: only hide it
+      if (kind === 'order' && !state.orders.some(o => o.id === id) && opts.history?.().bills.some(b => b.orderId === id)) {
+        if (!roleCan(opts.actor().role, 'admin.delete')) throw new Error(`Chưa có quyền: ${PERM_LABEL['admin.delete']}`)
+        deleted.add(id)
+        commit(state)
+        return
+      }
+      await run((s, c) => E.adminDelete(s, kind, id, c))
+      if (kind === 'order') deleted.add(id)
+    },
     async reset() {
       commit(structuredClone(sync?.reset?.() ?? opts.initial ?? seedFloor()))
     },

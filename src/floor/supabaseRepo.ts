@@ -12,7 +12,7 @@ import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import * as E from './engine'
 import type { FloorRepo } from './repo'
-import type { Actor, Bill, FloorState, Line, LineMod, LineStatus, Notice, Order, Role, Shift } from './types'
+import type { Actor, Bill, FloorState, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
 
 // realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
 let channelNo = 0
@@ -40,6 +40,22 @@ const sn = (v: unknown) => (v == null ? null : String(v))
 const n = (v: unknown) => Number(v ?? 0)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const idOf = (r: unknown) => s((r as Row | null)?.id)
+
+/** A bills row with its payments; `name` turns a staff id into the name. */
+function billFromRow(b: Row, name: (id: unknown) => string): Bill {
+  return {
+    id: s(b.id), orderId: s(b.order_id), billNo: s(b.bill_no), tableLabel: s(b.table_label), subtotal: n(b.subtotal), discount: n(b.discount),
+    discountReason: s(b.discount_reason), serviceCharge: n(b.service_charge), vatAdded: n(b.vat_added), vatTotal: n(b.vat_total), rounding: n(b.rounding),
+    total: n(b.total),
+    vatLines: ((b.vat_lines as Row[] | null) ?? []).map((v): VatGroup => ({ vatRate: n(v.vat_rate), priceIncludesVat: v.price_includes_vat !== false, base: n(v.base), vat: n(v.vat) })),
+    payments: ((b.payments as Row[] | null) ?? []).map(p => ({
+      id: s(p.id), method: p.method as PayMethod, amount: n(p.amount), tendered: nn(p.tendered), ref: s(p.ref),
+      receivedBy: name(p.received_by), receivedAt: s(p.received_at ?? b.paid_at),
+    })),
+    cashier: name(b.cashier_id), paidAt: s(b.paid_at), shiftId: sn(b.shift_id), printCount: n(b.print_count),
+    lastPrintAt: sn(b.last_print_at), lastPrintBy: b.last_print_by ? name(b.last_print_by) : '',
+  }
+}
 
 export interface SupabaseFloorOptions {
   /** The loaded menu, for this device's own changes shown before the server answers (engine transitions). */
@@ -82,7 +98,13 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         id: s(i.id), orderId: s(i.order_id), originOrderId: s(i.origin_order_id ?? i.order_id), menuItemId: s(i.menu_item_id), name: s(i.name),
         shortName: s(i.name).toUpperCase(), variantId: sn(i.variant_id), variantName: s(i.variant_name), qty: n(i.qty), price: n(i.price),
         stationId: s(i.station_id), status: i.status as LineStatus, note: s(i.note),
-        mods: ms.map((m): LineMod => ({ kind: m.kind as LineMod['kind'], name: s(m.name), kitchenName: s(m.kitchen_name), qty: n(m.qty), unitDelta: n(m.unit_delta) })),
+        mods: ms.map((m): LineMod => ({
+          kind: m.kind as LineMod['kind'], name: s(m.name), kitchenName: s(m.kitchen_name), qty: n(m.qty), unitDelta: n(m.unit_delta), stationId: sn(m.station_id),
+        })),
+        sideParts: ((i.side_parts as Row[] | null) ?? []).map((p): SidePart => ({
+          stationId: s(p.station_id), parts: ((p.parts as unknown[] | null) ?? []).map(s), status: p.status as LineStatus,
+          startedAt: sn(p.started_at), readyAt: sn(p.ready_at), servedAt: sn(p.served_at),
+        })),
         deliveryTableId: sn(i.delivery_table_id), round: n(i.round), sendBatch: s(i.send_batch), sentAt: s(i.sent_at), sentBy: name(i.created_by),
         rush: i.rush === true, rushReason: s(i.rush_reason), startedAt: sn(i.started_at), readyAt: sn(i.ready_at), servedAt: sn(i.served_at),
         voidReason: s(i.void_reason), voidedAt: sn(i.voided_at), voidStage: (i.void_stage as LineStatus | null) ?? null, replacedBy: sn(i.replaced_by),
@@ -92,18 +114,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         vatRate: n(i.vat_rate), priceIncludesVat: i.price_includes_vat !== false, discountable: i.discountable !== false, serviceCharge: i.service_charge !== false,
       }
     }
-    const toBill = (b: Row): Bill => ({
-      id: s(b.id), orderId: s(b.order_id), billNo: s(b.bill_no), tableLabel: s(b.table_label), subtotal: n(b.subtotal), discount: n(b.discount),
-      discountReason: s(b.discount_reason), serviceCharge: n(b.service_charge), vatAdded: n(b.vat_added), vatTotal: n(b.vat_total), rounding: n(b.rounding),
-      total: n(b.total),
-      vatLines: ((b.vat_lines as Row[] | null) ?? []).map((v): VatGroup => ({ vatRate: n(v.vat_rate), priceIncludesVat: v.price_includes_vat !== false, base: n(v.base), vat: n(v.vat) })),
-      payments: ((b.payments as Row[] | null) ?? []).map(p => ({
-          id: s(p.id), method: p.method as PayMethod, amount: n(p.amount), tendered: nn(p.tendered), ref: s(p.ref),
-          receivedBy: name(p.received_by), receivedAt: s(p.received_at ?? b.paid_at),
-        })),
-      cashier: name(b.cashier_id), paidAt: s(b.paid_at), shiftId: sn(b.shift_id), printCount: n(b.print_count),
-      lastPrintAt: sn(b.last_print_at), lastPrintBy: b.last_print_by ? name(b.last_print_by) : '',
-    })
+    const toBill = (b: Row) => billFromRow(b, name)
     const toShift = (x: Row): Shift => ({
       id: s(x.id), register: s(x.register), openedBy: name(x.opened_by), openedAt: s(x.opened_at), openingFloat: n(x.opening_float),
       closedAt: sn(x.closed_at), closedBy: x.closed_by ? name(x.closed_by) : null, countedCash: nn(x.counted_cash),
@@ -120,7 +131,6 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       settings: {
         maxOrdersPerTable: n(sh.max_orders_per_table ?? 4),
         maxMergeTables: n(sh.max_merge_tables ?? 30),
-        requireCleaning: sh.require_table_cleaning !== false,
         waiterSeesAmounts: sh.waiter_sees_amounts === true,
         businessDayStart: s(sh.business_day_start || '06:00').slice(0, 5),
         voidApproval: sh.void_approval === 'started' ? 'started' : 'sent',
@@ -129,7 +139,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false })),
       tables: tables.map(t => ({
         id: s(t.id), areaId: s(t.area_id), name: s(t.name), seats: n(t.seats ?? 4), sort: n(t.sort), active: t.active !== false,
-        temporary: t.is_temporary === true, needsCleaning: t.needs_cleaning === true,
+        temporary: t.is_temporary === true,
       })),
       orders: orders.map(toOrder),
       lines: items.map(toLine),
@@ -142,6 +152,10 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         bankBin: s(sh.bank_bin), bankName: s(sh.bank_name), bankAccount: s(sh.bank_account), bankAccountName: s(sh.bank_account_name),
         footer: s(sh.receipt_footer), serviceChargePct: n(sh.service_charge_pct), roundingMode: sh.rounding_mode === 'nearest' ? 'nearest' : 'down',
         roundingUnit: n(sh.rounding_unit ?? 1000) || 1000,
+        // 0014: missing columns (not migrated yet) read as all methods on, VAT by menu group, VAT printed
+        payMethods: { cash: sh.pay_cash !== false, bank: sh.pay_bank !== false, card: sh.pay_card !== false },
+        vatRate: sh.vat_rate == null ? null : n(sh.vat_rate),
+        showVat: sh.show_vat_on_receipt !== false,
       },
       clockOffset,
     }
@@ -192,7 +206,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         t = setTimeout(() => onChange(), 80) // one reload for a burst of row changes
       }
       const ch = db.channel(`floor-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
-      for (const table of ['orders', 'order_items', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts']) {
+      for (const table of ['orders', 'order_items', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'shop_settings']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, fire)
       }
       ch.subscribe()
@@ -225,6 +239,8 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     decideModify: (id, accept) => call('decide_modify', { p_notice: id, p_accept: accept }),
     ackNotice: id => call('ack_notice', { p_notice: id }, (st, c) => E.ackNotice(st, id, c)),
     setLineStatus: (ids, to) => call('set_item_status', { p_ids: ids, p_to: to }, (st, c) => E.setLineStatus(st, ids, to, c)),
+    setPartStatus: (parts, to) =>
+      call('set_part_status', { p_parts: parts.map(p => ({ line_id: p.lineId, station_id: p.stationId })), p_to: to }, (st, c) => E.setPartStatus(st, parts, to, c)),
     bumpTicket: key => call('bump_ticket', { p_key: key }, (st, c) => E.bumpTicket(st, key, c)),
     recallTicket: key => call('recall_ticket', { p_key: key }, (st, c) => E.recallTicket(st, key, c)),
     chaseOrder: id => call('chase_order', { p_order: id }, (st, c) => E.chaseOrder(st, id, c)),
@@ -264,8 +280,39 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     printBill: id => act(() => rpc<number>(db, 'print_bill', { p_bill: id })).then(n),
     openShift: inp => callId('open_shift', { p_float: inp.openingFloat, p_register: inp.register ?? 'Quầy 1' }),
     closeShift: inp => call('close_shift', { p_shift: inp.shiftId, p_detail: inp.countedDetail, p_note: inp.note ?? '' }),
-    markClean: id => call('mark_table_clean', { p_table: id }),
+    // Read policies decide who sees money (bills, payments: pay.collect or shift.manage, 0009). Pages of 1000 rows
+    // (the API's cap); dishes by 200 orders per request so the URL stays short.
+    async billHistory(from, to) {
+      const raw: Row[] = []
+      for (let at = 0; ; at += 1000) {
+        const page = await rows(db.from('bills').select('*, payments(*)').gte('paid_at', from).lt('paid_at', to).order('paid_at').range(at, at + 999))
+        raw.push(...page)
+        if (page.length < 1000) break
+      }
+      const staff = await rows(db.from('staff').select('id, name'))
+      const names = new Map(staff.map(x => [x.id, s(x.name)]))
+      const bills = raw.map(b => billFromRow(b, id => names.get(id) ?? ''))
+      const orderIds = [...new Set(bills.map(b => b.orderId))]
+      const lines: SoldLine[] = []
+      for (let i = 0; i < orderIds.length; i += 200) {
+        const part = await rows(db.from('order_items').select('order_id, name, variant_name, qty, price').in('order_id', orderIds.slice(i, i + 200)).neq('status', 'void'))
+        lines.push(...part.map(l => ({ orderId: s(l.order_id), name: s(l.name), variantName: s(l.variant_name), qty: n(l.qty), amount: n(l.price) * n(l.qty) })))
+      }
+      return { bills, lines }
+    },
     saveArea: a => act(() => ok(db.from('areas').upsert({ id: a.id, name: a.name.trim(), sort: a.sort, active: a.active }))),
+    saveShop: p =>
+      act(async () => {
+        const v = E.checkPaymentSettings(p)
+        await ok(
+          db.from('shop_settings').update({
+            pay_cash: v.payMethods.cash, pay_bank: v.payMethods.bank, pay_card: v.payMethods.card,
+            vat_rate: v.vatRate, show_vat_on_receipt: v.showVat,
+            bank_bin: v.bankBin, bank_name: v.bankName, bank_account: v.bankAccount, bank_account_name: v.bankAccountName,
+          }).eq('id', 1),
+        )
+      }),
+    adminDelete: (kind, id) => call('admin_delete', { p_kind: kind, p_id: id }),
     saveTable: t =>
       act(async () => {
         const row = { id: t.id, area_id: t.areaId, name: t.name.trim(), seats: t.seats, sort: t.sort, active: t.active, is_temporary: t.temporary }

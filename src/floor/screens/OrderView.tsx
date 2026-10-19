@@ -1,9 +1,9 @@
 // One order: header (bàn, khách, giờ ngồi, ghi chú đơn + dị ứng), Gọi món (the menu OrderScreen with an
-// unsent cart kept on this device) and Đã gửi (rounds with each dish's kitchen state, Sửa / Huỷ / Đã bưng),
+// unsent cart kept on this device; Tiếp theo opens Chi tiết hoá đơn, where Lưu & gửi bếp sends it) and Đã gửi (rounds with each dish's kitchen state, Sửa / Huỷ / Đã bưng),
 // plus the table actions: giục, tạm tính, thanh toán, chuyển bàn, gộp, ghép, chuyển món, tách đơn, trả bàn.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { isManager } from '../../auth/guards'
+import { roleCan } from '../../auth/permissions'
 import { describeLine, quoteLine, toSendLine, vnd, type PickerState } from '../../menu/picker'
 import { draftKey, useCart } from '../../menu/cart'
 import { newId } from '../../menu/repo'
@@ -27,6 +27,7 @@ type Dialog =
   | { kind: 'line'; line: Line }
   | { kind: 'tax' }
   | { kind: 'modify'; line: Line }
+  | { kind: 'editDraft'; key: number }
   | { kind: 'actions' | 'moveTable' | 'merge' | 'shared' | 'release' | 'leave' | 'voidOrder' }
   | { kind: 'moveItems' | 'split'; picked: Record<string, number> }
 
@@ -84,7 +85,8 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
 
   const label = orderLabel(floor, order)
   const group = groupLabel(floor, order)
-  const cashier = role === 'cashier' || isManager(role)
+  const canPay = roleCan(role, 'pay.collect')
+  const canSplit = roleCan(role, 'order.split')
   const locked = !!order.payingAt
   const live = lines.filter(l => l.status !== 'void')
   const total = orderAmount(floor, order.id)
@@ -114,7 +116,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
       throw e
     }
   }
-  // Lưu: the dishes added since the last save go to the kitchen as one round
+  // Lưu & gửi bếp: the dishes added since the last save go to the kitchen as one round, then back to Bàn
   const save = () => {
     if (!drafts.length || saving) return
     setSaving(true)
@@ -122,6 +124,13 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
       () => {
         setDrafts([])
         setSaving(false)
+        // the cart effect won't run once we leave, so clear the stored cart here
+        try {
+          localStorage.removeItem(storageKey)
+        } catch {
+          /* ignore */
+        }
+        go('ban')
       },
       () => setSaving(false),
     )
@@ -253,6 +262,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         {tab === 'detail' && (
           <section className="bill-detail" aria-label="Món của đơn">
             {live.length === 0 && drafts.length === 0 && <p className="empty">Chưa có món nào. Bấm “Thêm” để gọi món.</p>}
+            {drafts.length > 0 && <p className="review-hint">Kiểm tra lại món mới (số lượng, size, ghi chú) rồi bấm “Lưu & gửi bếp”.</p>}
             <ul className="detail-lines">
               {live.map(l => {
                 const p = lineParts(l)
@@ -265,6 +275,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
                       {[...p.options, ...p.addons].length > 0 && <span>{[...p.options, ...p.addons].join(' · ')}</span>}
                       {p.removals.length > 0 && <span className="removal">{p.removals.join(' · ')}</span>}
                       {l.note && <i>✎ {l.note}</i>}
+                      <SideParts line={l} menu={menu} />
                       <span className={`badge ls-badge ls-${l.status}`}>
                         {LINE_STATUS_LABEL[l.status]}
                         {pending ? ' · chờ bếp nhận sửa' : ''}
@@ -287,12 +298,12 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
               })}
               {quotedDrafts.map(({ d, item, q }) => (
                 <li key={d.key} className={'detail-line is-draft' + (q?.canAdd ? '' : ' is-bad')}>
-                  <div className="detail-line-main">
+                  <button type="button" className="detail-line-main" disabled={!item} onClick={() => setDialog({ kind: 'editDraft', key: d.key })}>
                     <b className="detail-name">{item?.name ?? 'Món đã xoá'}</b>
                     {item && <span>{describeLine(menu, item, d.state)}</span>}
                     {q && !q.canAdd && <span className="field-error">{q.issues.find(i => i.level === 'error')?.message}</span>}
-                    <span className="badge badge-draft">Chưa lưu</span>
-                  </div>
+                    <span className="badge badge-draft">Chưa gửi bếp · bấm để sửa</span>
+                  </button>
                   <div className="detail-line-side">
                     <b>{q?.total != null ? vnd(q.total) : '—'}</b>
                     <span className="qty-stepper">
@@ -334,7 +345,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
           {locked ? (
             <p className="warn">Đơn đang thanh toán: chưa thêm món được.</p>
           ) : (
-            <OrderScreen menu={menu} now={now} storageKey={storageKey} cart={cart} onSend={send} onReview={() => setTab('detail')} footExtra={sendExtra} />
+            <OrderScreen menu={menu} now={now} storageKey={storageKey} cart={cart} onSend={send} onReview={() => setTab('detail')} onNext={() => setTab('detail')} footExtra={sendExtra} />
           )}
         </div>
 
@@ -401,6 +412,11 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
                           {order.tables.length > 1 && l.deliveryTableId && <span className="small muted">ra bàn {tableName(floor, l.deliveryTableId)}</span>}
                           {l.status === 'void' && <span className="small void-reason">Đã huỷ: {l.voidReason}</span>}
                           {pending && <span className="small warn-text">Đang chờ bếp nhận sửa</span>}
+                          <SideParts
+                            line={l}
+                            menu={menu}
+                            onServe={!selecting && !locked ? stationId => repo.setPartStatus([{ lineId: l.id, stationId }], 'served').catch(fail) : undefined}
+                          />
                         </div>
                         <div className="sent-side">
                           <span className={`badge ls-badge ls-${l.status}`}>{LINE_STATUS_LABEL[l.status]}</span>
@@ -447,7 +463,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
               TỔNG: <b>{vnd(bill.total + draftTotal)}</b>
             </span>
           </div>
-          {cashier && (
+          {canPay && (
             <div className="detail-links">
               <button type="button" onClick={pay} disabled={!live.length || drafts.length > 0}>
                 Khuyến mại
@@ -465,9 +481,9 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
               ⊕ Thêm
             </button>
             <button type="button" className={'btn btn-save' + (drafts.length ? ' is-dirty' : '')} disabled={!drafts.length || saving || draftBlocked} onClick={save}>
-              {saving ? 'Đang lưu…' : drafts.length ? (draftBlocked ? 'Món cần sửa' : 'Lưu') : 'Đã lưu'}
+              {saving ? 'Đang gửi…' : drafts.length ? (draftBlocked ? 'Món cần sửa' : 'Lưu & gửi bếp') : 'Đã lưu'}
             </button>
-            {cashier ? (
+            {canPay ? (
               <button type="button" className="btn btn-primary btn-pay" disabled={!live.length || drafts.length > 0} title={drafts.length ? 'Lưu món mới trước khi thanh toán' : undefined} onClick={pay}>
                 Thanh toán
               </button>
@@ -542,7 +558,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
           <p className="muted small">Thuế suất theo nhóm món trong Thực đơn. Chiết khấu và khuyến mại nhập ở màn Thanh toán.</p>
         </Sheet>
       )}
-      {locked && cashier && (
+      {locked && canPay && (
         <div className="save-bar pay-bar">
           <button type="button" className="btn" onClick={() => repo.cancelPayment(order.id).catch(fail)}>
             Huỷ thanh toán
@@ -576,7 +592,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
             >
               🧾 In tạm tính
             </button>
-            {cashier && (
+            {canPay && (
               <button type="button" className="btn btn-primary" disabled={(locked && order.payingBy !== props.me) || !live.length} onClick={() => act(locked ? Promise.resolve() : repo.beginPayment(order.id), () => go(`thu-ngan/${order.id}`))}>
                 Thanh toán
               </button>
@@ -597,7 +613,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
             <button type="button" className="btn" disabled={locked || !live.length} onClick={() => (setDialog(null), setTab('sent'), setSelecting('moveItems'), setPicked({}))}>
               Chuyển món
             </button>
-            {order.kind === 'dine_in' && cashier && (
+            {order.kind === 'dine_in' && canSplit && (
               <button type="button" className="btn" disabled={locked || !live.length} onClick={() => (setDialog(null), setTab('sent'), setSelecting('split'), setPicked({}))}>
                 Tách đơn
               </button>
@@ -616,13 +632,25 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
                 Huỷ cả đơn
               </button>
             )}
+            {roleCan(role, 'admin.delete') && (
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() =>
+                  confirm('Xoá vĩnh viễn đơn này cùng mọi món, phiếu bếp và hoá đơn của đơn? Doanh thu sẽ không còn đơn này. Không khôi phục được.') &&
+                  act(repo.adminDelete('order', order.id), () => go('ban'))
+                }
+              >
+                Xoá vĩnh viễn đơn
+              </button>
+            )}
           </div>
         </Sheet>
       )}
       {dialog?.kind === 'void' && (
         <VoidSheet
           line={dialog.line}
-          needsManager={voidNeedsManager(dialog.line, floor.settings) && !isManager(role)}
+          needsManager={voidNeedsManager(dialog.line, floor.settings) && !roleCan(role, 'order.void_sent')}
           initialQty={dialog.qty}
           onClose={() => setDialog(null)}
           onVoid={inp => act(repo.voidLine(dialog.line.id, inp))}
@@ -632,11 +660,30 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         <VoidOrderSheet
           floor={floor}
           order={order}
-          needsManager={live.some(l => voidNeedsManager(l, floor.settings)) && !isManager(role)}
+          needsManager={live.some(l => voidNeedsManager(l, floor.settings)) && !roleCan(role, 'order.void_sent')}
           onClose={() => setDialog(null)}
           onVoid={inp => act(repo.voidOrder(order.id, inp), () => go('ban'))}
         />
       )}
+      {dialog?.kind === 'editDraft' && (() => {
+        const d = drafts.find(x => x.key === dialog.key)
+        const item = d && menu.items.find(i => i.id === d.state.itemId)
+        if (!d || !item) return null
+        return (
+          <ItemPicker
+            menu={menu}
+            item={item}
+            initial={d.state}
+            now={now}
+            addLabel="Lưu sửa"
+            onClose={() => setDialog(null)}
+            onAdd={s => {
+              setDrafts(prev => prev.map(x => (x.key === d.key ? { ...x, state: s } : x)))
+              setDialog(null)
+            }}
+          />
+        )
+      })()}
       {dialog?.kind === 'modify' && (() => {
         const item = menu.items.find(i => i.id === dialog.line.menuItemId)
         if (!item) return null
@@ -662,7 +709,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
       {dialog?.kind === 'shared' && order.tableId && (
         <SharedOrderSheet floor={floor} tableId={order.tableId} onClose={() => setDialog(null)} onCreate={inp => repo.addSharedOrder({ tableId: order.tableId!, ...inp }).then(id => (setDialog(null), go(`ban/don/${id}`)), fail)} />
       )}
-      {dialog?.kind === 'release' && <ReleaseSheet floor={floor} order={order} cashier={cashier} repo={repo} onClose={() => setDialog(null)} onError={fail} />}
+      {dialog?.kind === 'release' && <ReleaseSheet floor={floor} order={order} cashier={canSplit} repo={repo} onClose={() => setDialog(null)} onError={fail} />}
       {dialog?.kind === 'moveItems' && (
         <MoveItemsSheet
           floor={floor}
@@ -724,5 +771,27 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
         </Sheet>
       )}
     </div>
+  )
+}
+
+/** Phần đi kèm made at other stations (salad, bánh mì at Quầy rau): their own state, carried out on their own. */
+function SideParts(props: { line: Line; menu: Menu; onServe?: (stationId: string) => void }) {
+  const { line, menu, onServe } = props
+  if (line.status === 'void' || !line.sideParts.length) return null
+  return (
+    <span className="side-parts small">
+      {line.sideParts.map(p => (
+        <span key={p.stationId} className="side-part">
+          ↳ {menu.stations.find(s => s.id === p.stationId)?.name ?? 'Quầy khác'}
+          {p.parts.length > 0 && `: ${p.parts.join(' · ')}`}{' '}
+          <span className={`badge ls-badge ls-${p.status}`}>{LINE_STATUS_LABEL[p.status]}</span>
+          {p.status === 'ready' && onServe && (
+            <button type="button" className="btn btn-small btn-primary" onClick={() => onServe(p.stationId)}>
+              Đã bưng
+            </button>
+          )}
+        </span>
+      ))}
+    </span>
   )
 }

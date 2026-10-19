@@ -141,7 +141,7 @@ select t_err(format('insert into order_items (order_id, menu_item_id, name, pric
 select t_err(format('update order_items set price = 1 where order_id = %L', :'a_id'), '%permission denied%',
   'locked price cannot be edited by clients') as check;
 set test.uid = '00000000-0000-0000-0000-000000000004';
-select t_err(format(:q, :'a_id', '[]'), 'Chỉ phục vụ%', 'kitchen account cannot send') as check;
+select t_err(format(:q, :'a_id', '[]'), 'Chưa có quyền%', 'kitchen account cannot send') as check;
 select count(*) from set_item_status(array(select id from order_items where order_id = :'a_id'), 'cooking');
 select t_ok((select bool_and(status = 'cooking') from order_items where order_id = :'a_id'), 'kitchen can still move status') as check;
 
@@ -149,7 +149,7 @@ select t_ok((select bool_and(status = 'cooking') from order_items where order_id
 select set_sold_out('variant', :'v400', 'today') > now() as v400_sold_out_until_tomorrow_6am;
 select set_sold_out('component', :'c_egg', 'hold') = 'infinity' as egg_on_hold;
 set test.uid = '00000000-0000-0000-0000-000000000001';
-select t_err(format('select set_sold_out(''item'', %L, ''hold'')', :'steak'), 'Chỉ bếp, thu ngân%', 'waiters only look at sold-out state') as check;
+select t_err(format('select set_sold_out(''item'', %L, ''hold'')', :'steak'), 'Chưa có quyền%', 'waiters only look at sold-out state') as check;
 select t_err(format(:q, :'a_id', jsonb_build_array(jsonb_build_object('menu_item_id', :'steak', 'variant_id', :'v400', 'qty', 1,
   'options', jsonb_build_array(jsonb_build_object('option_id', :'o_mr')), 'removals', jsonb_build_array(:'c_egg')))),
   'Hết size 400g%', '400g sold out, refused at send') as check;
@@ -224,7 +224,7 @@ select t_ok((select array_agg(table_id) from order_tables where order_id = :'m_i
 
 -- ---------------------------------------------------------------- move items: 2 of 6 beers from the group to 5-A
 select id as beer_line from order_items where order_id = :'g_id' and menu_item_id = :'bia' \gset
-select t_err(format('select move_items(''[{"id":"%s","qty":2}]'', %L)', :'beer_line', :'a_id'), 'Chuyển món đã xong%',
+select t_err(format('select move_items(''[{"id":"%s","qty":2}]'', %L)', :'beer_line', :'a_id'), 'Chưa có quyền: Chuyển món đã xong%',
   'waiter cannot move finished items (money between bills)') as check;
 set test.uid = '00000000-0000-0000-0000-000000000002';
 select id is not null as shift_opened from open_shift(0);
@@ -254,7 +254,7 @@ select t_ok((select qty = 1 and price = 276000 from order_items where id = :'m_s
 -- ---------------------------------------------------------------- pay 5-A (cashier): 289.000 + 276.000 + 2 × 25.000
 select calc_bill(:'a_id', 0) as bill_5a;
 set test.uid = '00000000-0000-0000-0000-000000000001';
-select t_err(format('select pay_order(%L, 0, ''[{"method":"cash","amount":615000}]'')', :'a_id'), 'Chỉ thu ngân%', 'waiter cannot take payment') as check;
+select t_err(format('select pay_order(%L, 0, ''[{"method":"cash","amount":615000}]'')', :'a_id'), 'Chưa có quyền%', 'waiter cannot take payment') as check;
 select t_err(format('update orders set status = ''paid'' where id = %L', :'a_id'), 'Chỉ thanh toán qua pay_order%',
   'status cannot be set to paid directly') as check;
 set test.uid = '00000000-0000-0000-0000-000000000002';

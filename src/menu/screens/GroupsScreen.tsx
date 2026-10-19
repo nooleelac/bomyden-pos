@@ -1,4 +1,5 @@
-// Manager: shared option groups (Độ chín, Nước sốt) and paid add-on groups (Món thêm).
+// Manager: shared option groups (Độ chín, Nước sốt) and paid add-on groups (Món thêm). Xoá vĩnh viễn (admin.delete)
+// deletes a group with its options and its links to dishes.
 
 import { useState } from 'react'
 import { vnd } from '../picker'
@@ -9,30 +10,38 @@ import { Field, MoneyInput, Section, Switch } from '../ui'
 
 const PRINT_LABEL: Record<ReceiptPrint, string> = { always: 'Luôn in', if_priced: 'Chỉ in khi có tiền', never: 'Không in' }
 
-export function GroupsScreen(props: { menu: Menu; repo: MenuRepo; onError: (m: string) => void }) {
+export function GroupsScreen(props: { menu: Menu; repo: MenuRepo; purge?: boolean; onError: (m: string) => void }) {
   const { menu } = props
   const [edit, setEdit] = useState<ModifierGroup | null>(null)
+  const usedBy = (id: string) => menu.items.filter(i => i.groups.some(l => l.groupId === id)).length
   if (edit) {
+    const saved = menu.groups.find(g => g.id === edit.id)
+    const purge = () => {
+      if (!saved) return
+      const n = usedBy(saved.id)
+      if (!confirm(`Xoá vĩnh viễn nhóm ${saved.name} và ${saved.options.length} lựa chọn${n ? `, bỏ khỏi ${n} món đang dùng` : ''}? Hoá đơn cũ vẫn giữ tên lựa chọn. Không khôi phục được.`)) return
+      props.repo.adminDelete('group', saved.id).then(() => setEdit(null), e => props.onError(e instanceof Error ? e.message : String(e)))
+    }
     return (
       <GroupEditor
         menu={menu}
         value={edit}
         onClose={() => setEdit(null)}
         onSave={g => props.repo.saveGroup(g).then(() => setEdit(null))}
+        onPurge={props.purge && saved ? purge : undefined}
       />
     )
   }
-  const usedBy = (id: string) => menu.items.filter(i => i.groups.some(l => l.groupId === id)).length
   return (
     <div className="screen">
       <div className="screen-head">
         <h1>Tuỳ chọn và món thêm</h1>
       </div>
       <div className="btn-row">
-        <button type="button" className="btn" onClick={() => setEdit({ id: newId(), name: '', kind: 'choice', minSelect: 0, maxSelect: 1, printReceipt: 'if_priced', sort: menu.groups.length + 1, options: [] })}>
+        <button type="button" className="btn" onClick={() => setEdit({ id: newId(), name: '', kind: 'choice', minSelect: 0, maxSelect: 1, printReceipt: 'if_priced', stationId: null, sort: menu.groups.length + 1, options: [] })}>
           + Nhóm tuỳ chọn
         </button>
-        <button type="button" className="btn" onClick={() => setEdit({ id: newId(), name: '', kind: 'addon', minSelect: 0, maxSelect: null, printReceipt: 'always', sort: menu.groups.length + 1, options: [] })}>
+        <button type="button" className="btn" onClick={() => setEdit({ id: newId(), name: '', kind: 'addon', minSelect: 0, maxSelect: null, printReceipt: 'always', stationId: null, sort: menu.groups.length + 1, options: [] })}>
           + Nhóm món thêm
         </button>
       </div>
@@ -56,7 +65,7 @@ export function GroupsScreen(props: { menu: Menu; repo: MenuRepo; onError: (m: s
   )
 }
 
-function GroupEditor(props: { menu: Menu; value: ModifierGroup; onSave: (g: ModifierGroup) => Promise<void>; onClose: () => void }) {
+function GroupEditor(props: { menu: Menu; value: ModifierGroup; onSave: (g: ModifierGroup) => Promise<void>; onClose: () => void; onPurge?: () => void }) {
   const [g, setG] = useState(props.value)
   const [tried, setTried] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -96,6 +105,12 @@ function GroupEditor(props: { menu: Menu; value: ModifierGroup; onSave: (g: Modi
               </Field>
             </>
           )}
+          <Field label="Quầy làm" hint={addon ? 'Món thêm trùng với một thành phần (Thêm bánh mì) đi theo quầy của thành phần đó' : 'Ví dụ Nước sốt: quầy rau múc sốt, bếp chỉ nướng'}>
+            <select value={g.stationId ?? ''} onChange={x => setG({ ...g, stationId: x.target.value || null })}>
+              <option value="">Theo món (cùng phiếu với món)</option>
+              {props.menu.stations.filter(s => s.kind !== 'none').map(s => <option key={s.id} value={s.id}>{s.name} (phiếu riêng nếu món làm ở quầy khác)</option>)}
+            </select>
+          </Field>
           <Field label="In trên hoá đơn" hint="Phiếu bếp luôn in tuỳ chọn">
             <select value={g.printReceipt} onChange={x => setG({ ...g, printReceipt: x.target.value as ReceiptPrint })}>
               {Object.entries(PRINT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -139,6 +154,11 @@ function GroupEditor(props: { menu: Menu; value: ModifierGroup; onSave: (g: Modi
       </Section>
       {msg && <p className="field-error block">{msg}</p>}
       <div className="save-bar">
+        {props.onPurge && (
+          <button type="button" className="btn btn-danger" onClick={props.onPurge}>
+            Xoá vĩnh viễn
+          </button>
+        )}
         <button type="button" className="btn btn-primary btn-grow" onClick={save}>
           Lưu nhóm
         </button>

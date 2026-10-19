@@ -1,6 +1,7 @@
 // Waiter: search the menu, tap a size, fill the picker, collect lines. Lines are re-checked on every menu
 // change, so a dish sold out on another device turns red here before it can be sent.
 // With `onSend` (order on a table) Gửi bếp sends the cart as one round; without it, it only previews the data.
+// With `onNext` the button is Tiếp theo: the order shows the cart on a check screen and sends it from there.
 // With `storageKey` the unsent cart is kept on this device (per order) until it is sent or removed.
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -24,6 +25,8 @@ export function OrderScreen(props: {
   cart?: Cart
   /** Tapping Thành tiền opens this (the order's detail) instead of the list below the menu. */
   onReview?: () => void
+  /** Tiếp theo instead of Gửi bếp: the screen around it shows the cart to check, and sends it from there. */
+  onNext?: () => void
 }) {
   const { menu, now, onSend, storageKey, onCartChange } = props
   const [query, setQuery] = useState('')
@@ -203,8 +206,8 @@ export function OrderScreen(props: {
               {props.onReview ? ' · Xem đơn ›' : lines.length > 0 && (cartOpen ? ' · Thu gọn ▾' : ' · Xem / sửa ▴')}
             </span>
           </button>
-          <button type="button" className="btn btn-primary btn-send" disabled={!lines.length || blocked > 0 || sending} onClick={send}>
-            {blocked > 0 ? `${blocked} món cần sửa` : sending ? 'Đang gửi…' : 'Gửi bếp ›'}
+          <button type="button" className="btn btn-primary btn-send" disabled={!lines.length || blocked > 0 || sending} onClick={props.onNext ?? send}>
+            {blocked > 0 ? `${blocked} món cần sửa` : sending ? 'Đang gửi…' : props.onNext ? 'Tiếp theo ›' : 'Gửi bếp ›'}
           </button>
         </div>
       </section>

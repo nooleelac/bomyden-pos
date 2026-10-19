@@ -3,7 +3,8 @@
 
 import { useEffect, useState } from 'react'
 import { errText, go } from '../floor/hooks'
-import { SCREEN_LABEL, allowedRoles, homeRoute, isManager, screenOf } from './guards'
+import { SCREEN_LABEL, homeRoute, isManager, screenOf, screenPerms } from './guards'
+import { PERM_LABEL } from './permissions'
 import { PinPad } from './PinPad'
 import { isLocked } from './pin'
 import type { AuthRepo } from './repo'
@@ -211,7 +212,7 @@ export function BlockedScreen(props: { session: Session; route: string[]; onSwit
           </span>
           <h1>Không có quyền mở màn hình này</h1>
           <p>
-            <b>{screen}</b> chỉ dành cho {allowedRoles(screenOf(props.route)).map(r => ROLE_LABEL[r].toLowerCase()).join(', ')}. Bạn đang đăng nhập là{' '}
+            <b>{screen}</b> cần quyền {screenPerms(screenOf(props.route)).map(p => `“${PERM_LABEL[p]}”`).join(' hoặc ')}. Bạn đang đăng nhập là{' '}
             <b>
               {session.name} ({ROLE_LABEL[session.role]})
             </b>
@@ -225,7 +226,7 @@ export function BlockedScreen(props: { session: Session; route: string[]; onSwit
               Đổi người
             </button>
           </div>
-          <p className="muted small">Cần làm việc này? Nhờ quản lý đăng nhập trên máy này hoặc duyệt bằng mã PIN.</p>
+          <p className="muted small">Cần làm việc này? Nhờ chủ quán cấp quyền ở Nhân viên → Phân quyền, hoặc nhờ người có quyền đăng nhập trên máy này.</p>
         </div>
       </main>
     </div>

@@ -2,6 +2,8 @@
 // expected vs counted, difference, chốt ca and the 80mm shift report (also reprint for closed shifts).
 
 import { useMemo, useState } from 'react'
+import { useAuth } from '../../auth/context'
+import { roleCan } from '../../auth/permissions'
 import { METHOD_LABEL, formatMoney, formatVnd, type PayMethod } from '../../lib/billing'
 import { DEFAULT_REGISTER } from '../../floor/engine'
 import { errText } from '../../floor/hooks'
@@ -19,10 +21,15 @@ export function ShiftScreen(props: { floor: FloorState; repo: FloorRepo; me: str
   const closed = floor.shifts.filter(s => s.closedAt).sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''))
   const [viewing, setViewing] = useState<string | null>(null)
   const shown = viewing ? floor.shifts.find(s => s.id === viewing) ?? null : null
+  const purge = roleCan(useAuth().session.role, 'admin.delete')
+  const remove = (s: Shift) => {
+    if (!confirm(`Xoá vĩnh viễn ca ${s.register} · ${s.openedBy} · ${fmtDate(s.openedAt)} ${clock(s.openedAt)}? Hoá đơn trong ca vẫn giữ (không thuộc ca nào). Không khôi phục được.`)) return
+    repo.adminDelete('shift', s.id).then(() => (setViewing(null), props.onInfo('Đã xoá ca')), e => props.onError(errText(e)))
+  }
   return (
     <main className="cashier-main shift-screen">
       {shown ? (
-        <ClosedShift floor={floor} shift={shown} onBack={() => setViewing(null)} onError={props.onError} />
+        <ClosedShift floor={floor} shift={shown} onBack={() => setViewing(null)} onDelete={purge ? () => remove(shown) : undefined} onError={props.onError} />
       ) : shift ? (
         <CloseShift key={shift.id} floor={floor} repo={repo} shift={shift} me={props.me} onError={props.onError} onInfo={props.onInfo} />
       ) : (
@@ -251,7 +258,7 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
   )
 }
 
-function ClosedShift(props: { floor: FloorState; shift: Shift; onBack: () => void; onError: (m: string) => void }) {
+function ClosedShift(props: { floor: FloorState; shift: Shift; onBack: () => void; onDelete?: () => void; onError: (m: string) => void }) {
   const { floor, shift } = props
   const blocks = shiftReportBlocks({
     shop: floor.shop, register: shift.register, openedBy: shift.openedBy, openedAt: shift.openedAt, closedBy: shift.closedBy, closedAt: shift.closedAt,
@@ -271,6 +278,13 @@ function ClosedShift(props: { floor: FloorState; shift: Shift; onBack: () => voi
         <button type="button" className="btn btn-primary btn-big" onClick={() => printBlocks(blocks, 'Báo cáo chốt ca').catch(e => props.onError(errText(e)))}>
           🖨 In lại báo cáo
         </button>
+        {props.onDelete && (
+          <div className="btn-row">
+            <button type="button" className="btn btn-danger" onClick={props.onDelete}>
+              Xoá vĩnh viễn ca
+            </button>
+          </div>
+        )}
       </section>
       <section aria-label="Báo cáo ca 80mm">
         <ReceiptPreview blocks={blocks} title="Báo cáo ca" />

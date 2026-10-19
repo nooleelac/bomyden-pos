@@ -1,7 +1,7 @@
 // Manager-side checks before saving the menu. The database enforces the same limits (0002/0003).
 
 import { fold } from '../lib/text'
-import { UNITS, type Category, type Menu, type MenuItem, type ModifierGroup } from './types'
+import { UNITS, type Category, type Menu, type MenuItem, type ModifierGroup, type Station } from './types'
 
 export type FieldErrors = Record<string, string>
 
@@ -116,4 +116,39 @@ export function validateGroup(menu: Menu, g: ModifierGroup): FieldErrors {
     names.add(key(o.name))
   })
   return e
+}
+
+export function validateStation(menu: Menu, st: Station): FieldErrors {
+  const e: FieldErrors = {}
+  const name = st.name.trim()
+  if (!name) e.name = 'Nhập tên khu'
+  else if (name.length > 30) e.name = `Tên khu tối đa 30 ký tự (đang ${name.length})`
+  else if (menu.stations.some(x => x.id !== st.id && key(x.name) === key(name))) e.name = 'Tên khu bị trùng'
+  const code = st.code.trim()
+  if (!code) e.code = 'Nhập mã khu'
+  else if (!/^[a-z0-9-]{1,20}$/.test(code)) e.code = 'Mã chỉ gồm chữ thường không dấu, số, dấu gạch (tối đa 20)'
+  else if (code === 'all') e.code = 'Mã all dành cho màn bếp Tất cả'
+  else if (menu.stations.some(x => x.id !== st.id && x.code === code)) e.code = `Mã ${code} đã có khu khác dùng`
+  if (!Number.isInteger(st.warnMin) || st.warnMin < 1 || st.warnMin > 240) e.warnMin = 'Từ 1 đến 240 phút'
+  if (!Number.isInteger(st.lateMin) || st.lateMin < 1 || st.lateMin > 240) e.lateMin = 'Từ 1 đến 240 phút'
+  else if (!e.warnMin && st.lateMin <= st.warnMin) e.lateMin = 'Phải lớn hơn mốc vàng'
+  return e
+}
+
+/** Why a station cannot be deleted, or null. */
+export function stationDeleteBlock(menu: Menu, id: string): string | null {
+  const cats = menu.categories.filter(c => c.defaultStationId === id).length
+  const items = menu.items.filter(i => i.stationId === id).length
+  const parts = menu.items.reduce((n, i) => n + i.components.filter(c => c.stationId === id).length, 0)
+  const groups = menu.groups.filter(g => g.stationId === id).length
+  if (!cats && !items && !parts && !groups) return null
+  const what = [cats && `${cats} nhóm món`, items && `${items} món`, parts && `${parts} thành phần`, groups && `${groups} nhóm tuỳ chọn`]
+    .filter(Boolean)
+    .join(', ')
+  return `Khu đang được ${what} dùng: chuyển sang khu khác trước`
+}
+
+/** Suggested code from a name: 'Bếp nướng' -> 'bep-nuong'. */
+export function stationCode(name: string): string {
+  return fold(name).trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20)
 }

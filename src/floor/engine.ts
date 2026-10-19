@@ -6,13 +6,14 @@ import { countedTotal, openShiftOf, shiftSummary } from '../cashier/shift'
 import { settle, type Discount, type PaymentInput } from '../lib/billing'
 import { billTotals, vatRateOn, type TaxedLine } from '../lib/pricing'
 import { itemGroups, quoteLine, type PickerState } from '../menu/picker'
-import { isManager } from '../auth/guards'
+import { APPROVAL_PERM, PERM_LABEL, roleCan, type Perm } from '../auth/permissions'
 import type { ApprovalRequest } from '../auth/types'
+import { componentStationId, componentTicketText, optionStationId } from '../menu/routing'
 import type { Menu } from '../menu/types'
-import { groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey } from './logic'
+import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
   NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type Bill, type FloorSettings, type FloorState, type Line, type LineMod, type LineStatus, type Notice, type Order, type SendLineInput, type Shift, type Table,
+  type Actor, type Area, type Bill, type FloorSettings, type FloorState, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type SendLineInput, type Shift, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -33,21 +34,23 @@ function fail(msg: string): never {
 const iso = (c: Ctx) => c.now.toISOString()
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
-/** A manager (or the owner) approves `need`: themselves, or through a token from verify_manager_pin. Returns who. */
+/** Someone with the permission behind `need` approves it: the actor themselves, or through a token from verify_manager_pin. Returns who. */
 function approval(c: Ctx, token: string | undefined, need: ApprovalRequest, missing: string): string {
-  if (isManager(c.actor.role)) return c.actor.name
+  if (roleCan(c.actor.role, APPROVAL_PERM[need.action])) return c.actor.name
   if (!token) fail(missing)
   return c.approve?.(token, need) ?? fail('Mã duyệt của quản lý không hợp lệ, đã dùng hoặc đã hết hạn: nhập PIN lại')
 }
 
-function floorStaff(c: Ctx) {
-  if (c.actor.role === 'kitchen') fail('Tài khoản bếp không thao tác đơn được')
+/** The actor's role has this permission (_need in 0009): else "Chưa có quyền: …". */
+function need(c: Ctx, perm: Perm) {
+  if (!roleCan(c.actor.role, perm)) fail(`Chưa có quyền: ${PERM_LABEL[perm]}`)
 }
-function cashierUp(c: Ctx, what: string) {
-  if (c.actor.role !== 'cashier' && !isManager(c.actor.role)) fail(`Chỉ thu ngân hoặc quản lý được ${what}`)
+const can = (c: Ctx, perm: Perm) => roleCan(c.actor.role, perm)
+function floorStaff(c: Ctx) {
+  need(c, 'order.take')
 }
 function kitchenUp(c: Ctx) {
-  if (c.actor.role !== 'kitchen' && !isManager(c.actor.role)) fail('Chỉ máy bếp, bar hoặc quản lý được đổi trạng thái này')
+  need(c, 'kitchen.work')
 }
 
 function getOrder(s: FloorState, id: string): Order {
@@ -128,7 +131,7 @@ export function openTable(s: FloorState, inp: OpenTableInput, c: Ctx): { state: 
     guestCount: inp.guestCount,
     positionLabel: (inp.positionLabel ?? '').trim(),
   })
-  const state = { ...s, orders: [...s.orders], tables: s.tables.map(x => (x.id === t.id || extra.includes(x.id) ? { ...x, needsCleaning: false } : x)) }
+  const state = { ...s, orders: [...s.orders] }
   state.orders.push(o)
   return { state, orderId: o.id }
 }
@@ -213,7 +216,7 @@ function toPicker(l: SendLineInput): PickerState {
 }
 
 /** Prices one line from the menu (never from the client), like send_order_lines does on the server. */
-function priceLine(menu: Menu, inp: SendLineInput, now: Date) {
+function priceLine(menu: Menu, inp: SendLineInput, now: Date, shopVat?: number | null) {
   const item = menu.items.find(i => i.id === inp.menu_item_id) ?? fail('Món không có trong thực đơn')
   const state = toPicker(inp)
   checkNote(state.note)
@@ -221,23 +224,44 @@ function priceLine(menu: Menu, inp: SendLineInput, now: Date) {
   if (!q.canAdd || q.unit == null) fail(q.issues.find(i => i.level === 'error')?.message ?? `Không gửi được ${item.name}`)
   const cat = menu.categories.find(x => x.id === item.categoryId)
   const station = menu.stations.find(x => x.id === (item.stationId ?? cat?.defaultStationId)) ?? fail(`Món ${item.name} chưa chọn khu chế biến`)
+  // Quầy làm of each part: another prep station than the dish's gets a side part (null = the dish's own ticket)
+  const elsewhere = (id: string | null) => (id && id !== station.id && menu.stations.find(x => x.id === id && x.kind !== 'none') ? id : null)
   const mods: LineMod[] = []
   for (const g of itemGroups(menu, item)) {
     for (const o of g.options) {
       const n = state.options[o.id] ?? 0
-      if (n > 0) mods.push({ kind: g.group.kind === 'choice' ? 'option' : 'addon', name: o.name, kitchenName: o.kitchenName, qty: n, unitDelta: o.priceDelta })
+      if (n > 0) {
+        mods.push({
+          kind: g.group.kind === 'choice' ? 'option' : 'addon', name: o.name, kitchenName: o.kitchenName, qty: n, unitDelta: o.priceDelta,
+          stationId: elsewhere(optionStationId(menu, item, o.id)),
+        })
+      }
     }
   }
   for (const id of state.removals) {
     const comp = item.components.find(x => x.id === id)!
-    mods.push({ kind: 'removal', name: comp.name, kitchenName: comp.kitchenName, qty: 1, unitDelta: -comp.removalDiscount })
+    mods.push({ kind: 'removal', name: comp.name, kitchenName: comp.kitchenName, qty: 1, unitDelta: -comp.removalDiscount, stationId: elsewhere(componentStationId(menu, item, comp)) })
   }
+  const kept = [...item.components].filter(x => !state.removals.includes(x.id)).sort((a, b) => a.sort - b.sort)
+  const made = mods.filter(m => m.kind !== 'removal').map(m => m.stationId ?? null)
+  const sideIds = new Set([...kept.map(x => elsewhere(componentStationId(menu, item, x))), ...made].filter((x): x is string => !!x))
+  // "KHÔNG SALAD" alone makes no ticket at the cold counter: it stays on the dish's own ticket
+  for (const m of mods) if (m.stationId && !sideIds.has(m.stationId)) m.stationId = null
+  const sideParts: SidePart[] = menu.stations
+    .filter(x => sideIds.has(x.id))
+    .sort((a, b) => a.sort - b.sort)
+    .map(x => ({
+      stationId: x.id,
+      parts: kept.filter(k => elsewhere(componentStationId(menu, item, k)) === x.id).map(componentTicketText),
+      status: 'new', startedAt: null, readyAt: null, servedAt: null,
+    }))
   const variant = item.variants.find(v => v.id === state.variantId)
-  // tax flags are locked at send, like send_order_lines: VAT group of the item (else its category), rate of the day
+  // tax flags are locked at send, like send_order_lines: the shop's one rate (Cài đặt → Thanh toán), else the VAT
+  // group of the item (else its category) at the rate of the day
   const group = item.vatGroup ?? cat?.vatGroup ?? 'food'
-  const vatRate = vatRateOn(group, now) ?? menu.vatGroups.find(g => g.code === group)?.rate ?? fail(`Nhóm thuế ${group} chưa có thuế suất`)
+  const vatRate = shopVat ?? vatRateOn(group, now) ?? menu.vatGroups.find(g => g.code === group)?.rate ?? fail(`Nhóm thuế ${group} chưa có thuế suất`)
   const tax = { vatRate, priceIncludesVat: item.priceIncludesVat ?? menu.settings.pricesIncludeVat, discountable: item.discountable, serviceCharge: item.serviceCharge }
-  return { item, state, unit: q.unit, station, mods, variantName: variant?.name ?? '', tax }
+  return { item, state, unit: q.unit, station, mods, sideParts, variantName: variant?.name ?? '', tax }
 }
 
 export interface SendOptions {
@@ -259,13 +283,13 @@ export function sendLines(s: FloorState, orderId: string, lines: SendLineInput[]
   if (opts.rush && !RUSH_REASONS.includes((opts.rushReason ?? '') as (typeof RUSH_REASONS)[number])) fail('Chọn lý do GẤP')
   const round = o.rounds + 1
   const out: Line[] = lines.map(inp => {
-    const p = priceLine(c.menu, inp, c.now)
+    const p = priceLine(c.menu, inp, c.now, s.shop.vatRate)
     const table = inp.delivery_table_id ?? o.tableId
     if (o.kind === 'dine_in' && !o.tables.some(t => t.tableId === table)) fail('Bàn ra món phải là một bàn của đơn')
     return {
       id: c.newId(), orderId: o.id, originOrderId: o.id, menuItemId: p.item.id, name: p.item.name, shortName: p.item.shortName || p.item.name.toUpperCase(),
       variantId: p.state.variantId, variantName: p.variantName, qty: p.state.qty, price: p.unit, stationId: p.station.id,
-      status: p.station.kind === 'none' ? 'ready' : 'new', note: p.state.note.trim(), mods: p.mods,
+      status: p.station.kind === 'none' ? 'ready' : 'new', note: p.state.note.trim(), mods: p.mods, sideParts: p.sideParts,
       deliveryTableId: o.kind === 'dine_in' ? table : null, round, sendBatch: batch, sentAt: iso(c), sentBy: c.actor.name,
       rush: !!opts.rush, rushReason: opts.rush ? opts.rushReason ?? '' : '', startedAt: null,
       readyAt: p.station.kind === 'none' ? iso(c) : null, servedAt: null, voidReason: '', voidedAt: null, voidStage: null, replacedBy: null,
@@ -305,7 +329,7 @@ export function voidLine(s: FloorState, lineId: string, inp: VoidInput, c: Ctx):
   if (l.status === 'void') fail('Món đã huỷ')
   const reason = voidReason(inp)
   if (!Number.isInteger(inp.qty) || inp.qty < 1 || inp.qty > l.qty) fail('Số lượng huỷ không hợp lệ')
-  if (o.billRequestedAt && c.actor.role === 'waiter') fail('Đơn đã in tạm tính: huỷ món cần thu ngân hoặc quản lý')
+  if (o.billRequestedAt && !can(c, 'order.void_after_bill')) fail('Đơn đã in tạm tính: chưa có quyền huỷ món sau tạm tính')
   if (voidNeedsManager(l, s.settings)) {
     approval(c, inp.approval, { action: 'void_item', orderId: o.id, lineId: l.id }, l.status === 'new' ? 'Huỷ món đã gửi bếp: cần quản lý nhập mã PIN' : 'Món bếp đã làm: cần quản lý nhập mã PIN')
   }
@@ -345,7 +369,7 @@ export function voidOrder(s: FloorState, orderId: string, inp: { reason: string;
   floorStaff(c)
   const o = editable(s, orderId, c)
   const reason = voidReason(inp)
-  if (o.billRequestedAt && c.actor.role === 'waiter') fail('Đơn đã in tạm tính: huỷ đơn cần thu ngân hoặc quản lý')
+  if (o.billRequestedAt && !can(c, 'order.void_after_bill')) fail('Đơn đã in tạm tính: chưa có quyền huỷ món sau tạm tính')
   const live = s.lines.filter(l => l.orderId === o.id && l.status !== 'void')
   if (live.some(l => voidNeedsManager(l, s.settings))) approval(c, inp.approval, { action: 'void_order', orderId: o.id }, 'Huỷ đơn đã gửi bếp: cần quản lý nhập mã PIN')
   let state = s
@@ -356,7 +380,7 @@ export function voidOrder(s: FloorState, orderId: string, inp: { reason: string;
 // ---------------------------------------------------------------- SỬA món đã gửi
 
 function applyModify(s: FloorState, old: Line, inp: SendLineInput, c: Ctx): { state: FloorState; newId: string } {
-  const p = priceLine(c.menu, { ...inp, qty: old.qty }, c.now)
+  const p = priceLine(c.menu, { ...inp, qty: old.qty }, c.now, s.shop.vatRate)
   if (p.item.id !== old.menuItemId) fail('Sửa món chỉ đổi size, tuỳ chọn và ghi chú; đổi món khác thì huỷ rồi gọi mới')
   const id = c.newId()
   const line: Line = {
@@ -385,7 +409,7 @@ export function modifyLine(s: FloorState, lineId: string, inp: SendLineInput, c:
   if (inp.qty !== l.qty) fail('Đổi số lượng không phải là sửa: tăng thì gọi thêm, giảm thì huỷ bớt')
   if (s.notices.some(n => n.lineId === l.id && n.kind === 'modify' && n.status === 'pending')) fail('Đang chờ bếp xác nhận lần sửa trước')
   const before = lineText(l)
-  const preview = priceLine(c.menu, inp, c.now)
+  const preview = priceLine(c.menu, inp, c.now, s.shop.vatRate)
   const after = lineText({ name: preview.item.name, variantName: preview.variantName, mods: preview.mods, note: preview.state.note.trim() })
   if (after === before) fail('Chưa có gì thay đổi')
   const notice = (lineRef: string, status: Notice['status']): Notice => ({
@@ -427,40 +451,78 @@ const UNDO_MS = 2 * 60_000
  * Kitchen: Chờ làm → Đang làm → Xong (or straight to Xong); one step back within 2 minutes (manager any time).
  * Floor: Xong → Đã bưng.
  */
+type Steps = Pick<Line, 'status' | 'startedAt' | 'readyAt' | 'servedAt'>
+
+/** Throws unless the dish (or side part) may go from its state to `to` for this actor. */
+function checkStep(x: Steps, to: LineStatus, c: Ctx) {
+  const from = x.status
+  if (from === to) return
+  if (from === 'void') fail('Món đã huỷ')
+  if (to === 'served') {
+    floorStaff(c)
+    if (from !== 'ready') fail('Chỉ bưng món đã xong')
+    return
+  }
+  kitchenUp(c)
+  const forward = (from === 'new' && (to === 'cooking' || to === 'ready')) || (from === 'cooking' && to === 'ready')
+  const back = (from === 'cooking' && to === 'new') || (from === 'ready' && to === 'cooking')
+  if (!forward && !back) fail('Không đổi được trạng thái này')
+  if (back && !can(c, 'kitchen.override')) {
+    const at = from === 'ready' ? x.readyAt : x.startedAt
+    if (!at || c.now.getTime() - new Date(at).getTime() > UNDO_MS) fail('Quá 2 phút: cần quyền lùi trạng thái')
+  }
+}
+
+function step<T extends Steps>(x: T, to: LineStatus, t: string): T {
+  if (x.status === to) return x
+  if (to === 'cooking') return { ...x, status: to, startedAt: x.status === 'new' ? t : x.startedAt, readyAt: null }
+  if (to === 'ready') return { ...x, status: to, startedAt: x.startedAt ?? t, readyAt: t }
+  if (to === 'served') return { ...x, status: to, servedAt: t }
+  return { ...x, status: to, startedAt: null }
+}
+
 export function setLineStatus(s: FloorState, lineIds: string[], to: LineStatus, c: Ctx): FloorState {
   const ids = new Set(lineIds)
   const lines = s.lines.filter(l => ids.has(l.id))
   if (!lines.length) fail('Không tìm thấy món')
-  for (const l of lines) {
-    const from = l.status
-    if (from === to) continue
-    if (from === 'void') fail('Món đã huỷ')
-    if (to === 'served') {
-      floorStaff(c)
-      if (from !== 'ready') fail('Chỉ bưng món đã xong')
-      continue
-    }
-    kitchenUp(c)
-    const forward = (from === 'new' && (to === 'cooking' || to === 'ready')) || (from === 'cooking' && to === 'ready')
-    const back = (from === 'cooking' && to === 'new') || (from === 'ready' && to === 'cooking')
-    if (!forward && !back) fail('Không đổi được trạng thái này')
-    if (back && !isManager(c.actor.role)) {
-      const at = from === 'ready' ? l.readyAt : l.startedAt
-      if (!at || c.now.getTime() - new Date(at).getTime() > UNDO_MS) fail('Quá 2 phút: chỉ quản lý lùi được trạng thái')
-    }
+  for (const l of lines) checkStep(l, to, c)
+  const t = iso(c)
+  return patchLines(s, l => (ids.has(l.id) ? step(l, to, t) : l))
+}
+
+/** A side part: one line's part at one other station (set_part_status in 0012). */
+export interface PartRef {
+  lineId: string
+  stationId: string
+}
+
+/** Same steps and rules as setLineStatus, for the part of a dish made at another station (salad at Quầy rau). */
+export function setPartStatus(s: FloorState, refs: PartRef[], to: LineStatus, c: Ctx): FloorState {
+  if (!refs.length) fail('Không tìm thấy phần món')
+  for (const r of refs) {
+    const l = s.lines.find(x => x.id === r.lineId)
+    const p = l?.sideParts.find(x => x.stationId === r.stationId)
+    if (!l || !p) fail('Không tìm thấy phần món')
+    if (l.status === 'void') fail('Món đã huỷ')
+    checkStep(p, to, c)
   }
   const t = iso(c)
   return patchLines(s, l => {
-    if (!ids.has(l.id) || l.status === to) return l
-    if (to === 'cooking') return { ...l, status: to, startedAt: l.status === 'new' ? t : l.startedAt, readyAt: null }
-    if (to === 'ready') return { ...l, status: to, startedAt: l.startedAt ?? t, readyAt: t }
-    if (to === 'served') return { ...l, status: to, servedAt: t }
-    return { ...l, status: to, startedAt: null }
+    const mine = refs.filter(r => r.lineId === l.id)
+    return mine.length ? { ...l, sideParts: l.sideParts.map(p => (mine.some(r => r.stationId === p.stationId) ? step(p, to, t) : p)) } : l
   })
 }
 
-function ticketLines(s: FloorState, key: string): Line[] {
-  return s.lines.filter(l => !l.replacedBy && l.status !== 'void' && ticketKey(l) === key)
+/** Main lines by id, side parts by line and station. */
+function setKitchenStatus(s: FloorState, lines: KitchenLine[], to: LineStatus, c: Ctx): FloorState {
+  const main = lines.filter(l => !l.sideStationId).map(l => l.id)
+  const side = lines.filter(l => l.sideStationId).map(l => ({ lineId: l.id, stationId: l.sideStationId! }))
+  const state = main.length ? setLineStatus(s, main, to, c) : s
+  return side.length ? setPartStatus(state, side, to, c) : state
+}
+
+function ticketLines(s: FloorState, key: string): KitchenLine[] {
+  return allKitchenLines(s, l => !l.replacedBy && l.status !== 'void').filter(l => ticketKey(l) === key)
 }
 
 function setTicket(s: FloorState, key: string, p: Partial<FloorState['tickets'][number]>): FloorState {
@@ -474,10 +536,10 @@ export function bumpTicket(s: FloorState, key: string, c: Ctx): FloorState {
   kitchenUp(c)
   const lines = ticketLines(s, key)
   if (!lines.length) fail('Không tìm thấy phiếu')
-  const ids = new Set(s.lines.filter(l => ticketKey(l) === key).map(l => l.id))
+  const ids = new Set(allKitchenLines(s).filter(l => ticketKey(l) === key).map(l => l.id))
   if (s.notices.some(n => !n.ackAt && n.lineId && ids.has(n.lineId) && (n.kind === 'void' || n.kind === 'modify'))) fail('Bấm Đã biết HUỶ / SỬA trước khi báo xong phiếu')
-  const open = lines.filter(isUnfinished).map(l => l.id)
-  let state = open.length ? setLineStatus(s, open, 'ready', c) : s
+  const open = lines.filter(isUnfinished)
+  let state = open.length ? setKitchenStatus(s, open, 'ready', c) : s
   const order = lines[0].orderId
   state = { ...state, notices: state.notices.map(n => (n.kind === 'chase' && !n.ackAt && n.orderId === order && n.stationId === lines[0].stationId ? { ...n, ackAt: iso(c) } : n)) }
   return setTicket(state, key, { bumpedAt: iso(c) })
@@ -490,10 +552,17 @@ export function recallTicket(s: FloorState, key: string, c: Ctx): FloorState {
   if (!lines.length) fail('Không tìm thấy phiếu')
   const st = s.tickets.find(t => t.key === key)
   const doneAt = st?.bumpedAt ?? lines.map(l => l.readyAt).filter(Boolean).sort().pop()
-  if (doneAt && c.now.getTime() - new Date(doneAt).getTime() > 30 * 60_000 && !isManager(c.actor.role)) fail('Phiếu xong quá 30 phút: cần quản lý gọi lại')
-  const back = new Set(lines.filter(l => l.status === 'ready').map(l => l.id))
-  if (!back.size) fail('Món của phiếu đã bưng hết')
-  const state = patchLines(s, l => (back.has(l.id) ? { ...l, status: 'cooking', readyAt: null } : l))
+  if (doneAt && c.now.getTime() - new Date(doneAt).getTime() > 30 * 60_000 && !can(c, 'kitchen.override')) fail('Phiếu xong quá 30 phút: cần quyền gọi lại phiếu cũ')
+  const back = lines.filter(l => l.status === 'ready')
+  if (!back.length) fail('Món của phiếu đã bưng hết')
+  const main = new Set(back.filter(l => !l.sideStationId).map(l => l.id))
+  const side = new Set(back.filter(l => l.sideStationId).map(l => `${l.id}|${l.sideStationId}`))
+  const state = patchLines(s, l => {
+    const x: Line = main.has(l.id) ? { ...l, status: 'cooking', readyAt: null } : l
+    return l.sideParts.some(p => side.has(`${l.id}|${p.stationId}`))
+      ? { ...x, sideParts: x.sideParts.map(p => (side.has(`${l.id}|${p.stationId}`) ? { ...p, status: 'cooking', readyAt: null } : p)) }
+      : x
+  })
   return setTicket(state, key, { recalledAt: iso(c), recallCount: (st?.recallCount ?? 0) + 1, bumpedAt: null })
 }
 
@@ -504,7 +573,7 @@ export function chaseOrder(s: FloorState, orderId: string, c: Ctx): FloorState {
   floorStaff(c)
   const o = editable(s, orderId, c)
   if (o.chasedAt && c.now.getTime() - new Date(o.chasedAt).getTime() < 3 * 60_000) fail('Vừa giục xong: chờ 3 phút rồi giục lại')
-  const stations = [...new Set(s.lines.filter(l => l.orderId === o.id && isUnfinished(l)).map(l => l.stationId))]
+  const stations = [...new Set(allKitchenLines(s, l => l.orderId === o.id).filter(isUnfinished).map(l => l.stationId))]
   if (!stations.length) fail('Không có món nào đang chờ bếp')
   const n = o.chaseCount + 1
   const notices: Notice[] = stations.map(st => ({
@@ -598,7 +667,6 @@ export function moveOrder(
   const fromLabels = labelsOf(state, moved)
   state = patchOrder(state, o.id, { tables, tableId: o.tableId === from ? to.id : o.tableId })
   state = patchLines(state, l => (moved.has(l.id) ? { ...l, deliveryTableId: to.id } : l))
-  state = { ...state, tables: state.tables.map(t => (t.id === to.id ? { ...t, needsCleaning: false } : t)) }
   if (mode === 'shared') checkSharedLabels(state, to.id)
   return markMoved(state, fromLabels, c)
 }
@@ -620,7 +688,7 @@ export function moveItems(s: FloorState, items: { id: string; qty?: number }[], 
     editable(state, l.orderId, c)
     if (l.orderId === target.id) fail('Món đã ở đơn này')
     if (l.status === 'void') fail('Món đã huỷ')
-    if ((l.status === 'ready' || l.status === 'served') && c.actor.role === 'waiter') fail('Chuyển món đã xong hoặc đã ra cần thu ngân hoặc quản lý')
+    if ((l.status === 'ready' || l.status === 'served') && !can(c, 'order.move_done')) fail('Chưa có quyền: Chuyển món đã xong hoặc đã ra')
     const qty = it.qty ?? l.qty
     if (!Number.isInteger(qty) || qty < 1 || qty > l.qty) fail(`Số lượng chuyển không hợp lệ: ${l.name}`)
     sources.add(l.orderId)
@@ -643,7 +711,7 @@ export function splitOrder(
   c: Ctx,
 ): { state: FloorState; orderId: string } {
   floorStaff(c)
-  cashierUp(c, 'tách đơn')
+  need(c, 'order.split')
   const src = editable(s, inp.orderId, c)
   if (src.kind !== 'dine_in') fail('Đơn mang về không tách theo bàn')
   if (!inp.items.length) fail('Chọn món cần tách')
@@ -672,7 +740,7 @@ export function releaseTable(s: FloorState, orderId: string, tableId: string, c:
 /** Tách một bàn khỏi nhóm gộp: the dishes delivered to that table go back to an order of its own. */
 export function splitTableFromGroup(s: FloorState, inp: { orderId: string; tableId: string; guestCount: number }, c: Ctx): { state: FloorState; orderId: string } {
   floorStaff(c)
-  cashierUp(c, 'tách bàn khỏi nhóm')
+  need(c, 'order.split')
   const o = editable(s, inp.orderId, c)
   if (o.tables.length < 2) fail('Đơn không phải nhóm gộp')
   if (!o.tables.some(t => t.tableId === inp.tableId)) fail('Bàn không thuộc nhóm')
@@ -701,13 +769,13 @@ export function requestBill(s: FloorState, orderId: string, c: Ctx): FloorState 
 
 /** Đang thanh toán: other devices cannot change the order until payment ends or is cancelled. */
 export function beginPayment(s: FloorState, orderId: string, c: Ctx): FloorState {
-  cashierUp(c, 'thanh toán')
+  need(c, 'pay.collect')
   const o = editable(s, orderId, c)
   return patchOrder(s, o.id, { payingAt: iso(c), payingBy: c.actor.name })
 }
 
 export function cancelPayment(s: FloorState, orderId: string, c: Ctx): FloorState {
-  cashierUp(c, 'thanh toán')
+  need(c, 'pay.collect')
   getOrder(s, orderId)
   return patchOrder(s, orderId, { payingAt: null, payingBy: null })
 }
@@ -746,18 +814,17 @@ export interface PayInput {
 }
 
 export function needsManagerForDiscount(role: Actor['role'], discount: number): boolean {
-  return discount > 0 && !isManager(role)
+  return discount > 0 && !roleCan(role, 'pay.discount')
 }
 
 /**
  * Thanh toán: one bill for the order, split over any mix of cash, transfer and card (pay_order in SQL).
  * The settled amounts must equal the rounded total exactly; only cash may be handed over above it (change).
  * A bill discount needs a reason and a manager (PIN). Money goes into the register's open shift.
- * Unfinished dishes stay on the kitchen screen. A table is free once every order on it is closed,
- * or Chờ dọn when the shop turns cleaning on.
+ * Unfinished dishes stay on the kitchen screen. A table is free as soon as every order on it is closed.
  */
 export function payOrder(s: FloorState, orderId: string, inp: PayInput, c: Ctx): { state: FloorState; billId: string } {
-  cashierUp(c, 'thanh toán')
+  need(c, 'pay.collect')
   const o = editable(s, orderId, c)
   const shift = openShiftOf(s.shifts, inp.register ?? DEFAULT_REGISTER) ?? fail('Chưa mở ca thu ngân: mở ca trước khi thu tiền')
   if (!s.lines.some(l => l.orderId === o.id && l.status !== 'void')) fail('Đơn chưa có món')
@@ -791,17 +858,13 @@ export function payOrder(s: FloorState, orderId: string, inp: PayInput, c: Ctx):
     })),
     cashier: c.actor.name, paidAt: t, shiftId: shift.id, printCount: 0, lastPrintAt: null, lastPrintBy: '',
   }
-  let state = patchOrder({ ...s, bills: [...s.bills, row] }, o.id, { status: 'paid', closedAt: t, payingAt: null, payingBy: null })
-  if (s.settings.requireCleaning) {
-    const free = new Set(o.tables.map(x => x.tableId).filter(id => openOrdersAt(state, id).length === 0))
-    state = { ...state, tables: state.tables.map(x => (free.has(x.id) ? { ...x, needsCleaning: true } : x)) }
-  }
+  const state = patchOrder({ ...s, bills: [...s.bills, row] }, o.id, { status: 'paid', closedAt: t, payingAt: null, payingBy: null })
   return { state, billId: row.id }
 }
 
 /** One more receipt printed for a bill (print_bill). The 2nd and later print "IN LẠI – lần n". */
 export function printBill(s: FloorState, billId: string, c: Ctx): { state: FloorState; count: number } {
-  cashierUp(c, 'in hoá đơn')
+  need(c, 'pay.collect')
   const b = s.bills.find(x => x.id === billId) ?? fail('Không tìm thấy hoá đơn')
   const count = b.printCount + 1
   return { state: { ...s, bills: s.bills.map(x => (x.id === billId ? { ...x, printCount: count, lastPrintAt: iso(c), lastPrintBy: c.actor.name } : x)) }, count }
@@ -813,7 +876,7 @@ export const DEFAULT_REGISTER = 'Quầy 1'
 
 /** Mở ca: one open shift per register, with the opening float (tiền lẻ đầu ca). */
 export function openShift(s: FloorState, inp: { openingFloat: number; register?: string }, c: Ctx): { state: FloorState; shiftId: string } {
-  cashierUp(c, 'mở ca')
+  need(c, 'shift.manage')
   const register = inp.register ?? DEFAULT_REGISTER
   if (openShiftOf(s.shifts, register)) fail(`${register} đang có ca mở: chốt ca cũ trước`)
   if (!Number.isInteger(inp.openingFloat) || inp.openingFloat < 0) fail('Tiền đầu ca phải là số đồng không âm')
@@ -829,7 +892,7 @@ export function openShift(s: FloorState, inp: { openingFloat: number; register?:
  * Refused while an order is on someone's payment screen.
  */
 export function closeShift(s: FloorState, inp: { shiftId: string; countedDetail: Record<string, number>; note?: string }, c: Ctx): FloorState {
-  cashierUp(c, 'chốt ca')
+  need(c, 'shift.manage')
   const sh = s.shifts.find(x => x.id === inp.shiftId) ?? fail('Không tìm thấy ca')
   if (sh.closedAt) fail('Ca đã chốt')
   if (s.orders.some(o => isOpen(o) && o.payingAt)) fail('Còn đơn đang thanh toán: thu xong hoặc huỷ thanh toán trước khi chốt ca')
@@ -849,29 +912,23 @@ export function closeShift(s: FloorState, inp: { shiftId: string; countedDetail:
   }
 }
 
-/** Dọn xong: Chờ dọn → Trống. */
-export function markClean(s: FloorState, tableId: string, c: Ctx): FloorState {
-  floorStaff(c)
-  getTable(s, tableId)
-  return { ...s, tables: s.tables.map(t => (t.id === tableId ? { ...t, needsCleaning: false } : t)) }
-}
-
 // ---------------------------------------------------------------- khu vực và bàn
 
 function managerOnly(c: Ctx) {
-  if (!isManager(c.actor.role)) fail('Chỉ quản lý được sửa khu vực và bàn')
+  need(c, 'tables.edit')
 }
 
 export function saveArea(s: FloorState, a: Area, c: Ctx): FloorState {
   managerOnly(c)
   if (!a.name.trim()) fail('Nhập tên khu vực')
+  if (s.areas.some(x => x.id !== a.id && x.name.trim().toLowerCase() === a.name.trim().toLowerCase())) fail(`Đã có khu ${a.name.trim()}`)
   if (!a.active && s.tables.some(t => t.areaId === a.id && openOrdersAt(s, t.id).length)) fail('Khu còn đơn chưa thanh toán: chưa tạm đóng được')
   const exists = s.areas.some(x => x.id === a.id)
   return { ...s, areas: exists ? s.areas.map(x => (x.id === a.id ? { ...a, name: a.name.trim() } : x)) : [...s.areas, { ...a, name: a.name.trim() }] }
 }
 
 export function saveTable(s: FloorState, t: Table, c: Ctx): FloorState {
-  if (!(t.temporary && c.actor.role === 'cashier')) managerOnly(c)
+  if (!(t.temporary && can(c, 'tables.temp'))) managerOnly(c)
   const name = t.name.trim()
   if (!name) fail('Nhập tên bàn')
   if (!Number.isInteger(t.seats) || t.seats < 1 || t.seats > 99) fail('Số ghế từ 1 đến 99')
@@ -883,3 +940,76 @@ export function saveTable(s: FloorState, t: Table, c: Ctx): FloorState {
   return { ...s, tables: exists ? s.tables.map(x => (x.id === t.id ? row : x)) : [...s.tables, row] }
 }
 
+
+// ---------------------------------------------------------------- Xoá vĩnh viễn (admin_delete in 0010)
+
+export type FloorDeleteKind = 'area' | 'table' | 'order' | 'shift'
+
+/**
+ * Delete for good (admin.delete): an order with its dishes, bill and notices (and orders merged into it); a table
+ * with the orders still open on it (closed ones keep their bills, without the table); an area with its tables;
+ * a shift (its bills stay, without the shift).
+ */
+export function adminDelete(s: FloorState, kind: FloorDeleteKind, id: string, c: Ctx): FloorState {
+  need(c, 'admin.delete')
+  const dropOrders = (st: FloorState, ids: Set<string>): FloorState => {
+    for (const o of st.orders) if (o.mergedInto && ids.has(o.mergedInto)) ids.add(o.id)
+    return {
+      ...st,
+      orders: st.orders.filter(o => !ids.has(o.id)),
+      lines: st.lines.filter(l => !ids.has(l.orderId)).map(l => (ids.has(l.originOrderId) ? { ...l, originOrderId: l.orderId } : l)),
+      notices: st.notices.filter(n => !ids.has(n.orderId)),
+      bills: st.bills.filter(b => !ids.has(b.orderId)),
+    }
+  }
+  const dropTables = (st: FloorState, tableIds: Set<string>): FloorState => {
+    const open = new Set(st.orders.filter(o => isOpen(o) && o.tables.some(t => tableIds.has(t.tableId))).map(o => o.id))
+    const next = dropOrders(st, open)
+    return {
+      ...next,
+      tables: next.tables.filter(t => !tableIds.has(t.id)),
+      orders: next.orders.map(o =>
+        o.tables.some(t => tableIds.has(t.tableId)) || (o.tableId && tableIds.has(o.tableId))
+          ? { ...o, tableId: o.tableId && tableIds.has(o.tableId) ? null : o.tableId, tables: o.tables.filter(t => !tableIds.has(t.tableId)) }
+          : o,
+      ),
+      lines: next.lines.map(l => (l.deliveryTableId && tableIds.has(l.deliveryTableId) ? { ...l, deliveryTableId: null } : l)),
+    }
+  }
+  switch (kind) {
+    case 'order':
+      if (!s.orders.some(o => o.id === id)) fail('Không tìm thấy đơn')
+      return dropOrders(s, new Set([id]))
+    case 'table':
+      if (!s.tables.some(t => t.id === id)) fail('Không tìm thấy bàn')
+      return dropTables(s, new Set([id]))
+    case 'area': {
+      if (!s.areas.some(a => a.id === id)) fail('Không tìm thấy khu')
+      const next = dropTables(s, new Set(s.tables.filter(t => t.areaId === id).map(t => t.id)))
+      return { ...next, areas: next.areas.filter(a => a.id !== id) }
+    }
+    case 'shift':
+      if (!s.shifts.some(x => x.id === id)) fail('Không tìm thấy ca')
+      return { ...s, shifts: s.shifts.filter(x => x.id !== id), bills: s.bills.map(b => (b.shiftId === id ? { ...b, shiftId: null } : b)) }
+    default:
+      return fail('Loại cần xoá không hợp lệ')
+  }
+}
+
+/** Cài đặt → Thanh toán: at least one payment method, a bank account for transfers, a whole VAT % from 0 to 100. */
+export function checkPaymentSettings(p: PaymentSettings): PaymentSettings {
+  if (!Object.values(p.payMethods).some(Boolean)) fail('Bật ít nhất một phương thức thanh toán')
+  const bankAccount = p.bankAccount.replace(/\s/g, '')
+  const bankBin = p.bankBin.trim()
+  if (p.payMethods.bank) {
+    if (!/^\d{6}$/.test(bankBin)) fail('Mã ngân hàng (BIN) gồm 6 chữ số')
+    if (!/^[0-9A-Za-z]{4,19}$/.test(bankAccount)) fail('Nhập số tài khoản nhận chuyển khoản')
+  }
+  if (p.vatRate !== null && (!Number.isInteger(p.vatRate) || p.vatRate < 0 || p.vatRate > 100)) fail('Thuế suất là số nguyên từ 0 đến 100%')
+  return { ...p, bankBin, bankAccount, bankName: p.bankName.trim(), bankAccountName: p.bankAccountName.trim().toUpperCase() }
+}
+
+export function saveShop(s: FloorState, p: PaymentSettings, c: Ctx): FloorState {
+  need(c, 'settings.edit')
+  return { ...s, shop: { ...s.shop, ...checkPaymentSettings(p) } }
+}

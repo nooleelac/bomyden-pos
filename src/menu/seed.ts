@@ -8,7 +8,7 @@ const opt = (groupId: string, id: string, name: string, kitchenName: string, sor
 })
 
 const comp = (id: string, name: string, kitchenName: string, sort: number, extra: Partial<Component> = {}): Component => ({
-  id, name, kitchenName, qty: 1, unit: '', removable: false, removalDiscount: 0, addonOptionId: null, sort, soldOutUntil: null, ...extra,
+  id, name, kitchenName, qty: 1, unit: '', removable: false, removalDiscount: 0, addonOptionId: null, stationId: null, sort, soldOutUntil: null, ...extra,
 })
 
 const item = (x: Partial<MenuItem> & Pick<MenuItem, 'id' | 'categoryId' | 'name' | 'shortName' | 'code'>): MenuItem => ({
@@ -22,10 +22,11 @@ export function seedMenu(): Menu {
     sample: true,
     settings: { pricesIncludeVat: true, businessDayStart: '06:00', minPriceRatio: 0.5 },
     stations: [
-      { id: 'st-grill', code: 'grill', name: 'Bếp nướng', kind: 'kitchen' },
-      { id: 'st-hotpot', code: 'hotpot', name: 'Bếp lẩu', kind: 'kitchen' },
-      { id: 'st-bar', code: 'bar', name: 'Bar', kind: 'bar' },
-      { id: 'st-none', code: 'none', name: 'Không qua bếp', kind: 'none' },
+      { id: 'st-grill', code: 'grill', name: 'Bếp nướng', kind: 'kitchen', sort: 1, warnMin: 12, lateMin: 20 },
+      { id: 'st-hotpot', code: 'hotpot', name: 'Bếp lẩu', kind: 'kitchen', sort: 2, warnMin: 7, lateMin: 12 },
+      { id: 'st-bar', code: 'bar', name: 'Bar', kind: 'bar', sort: 3, warnMin: 5, lateMin: 10 },
+      { id: 'st-cold', code: 'rau', name: 'Quầy rau – sốt', kind: 'kitchen', sort: 4, warnMin: 5, lateMin: 10 },
+      { id: 'st-none', code: 'none', name: 'Không qua bếp', kind: 'none', sort: 5, warnMin: 10, lateMin: 15 },
     ],
     vatGroups: [
       { code: 'food', name: 'Món ăn, đồ uống', rate: 8 },
@@ -41,7 +42,7 @@ export function seedMenu(): Menu {
     ],
     groups: [
       {
-        id: 'g-doneness', name: 'Độ chín', kind: 'choice', minSelect: 1, maxSelect: 1, printReceipt: 'never', sort: 1,
+        id: 'g-doneness', name: 'Độ chín', kind: 'choice', minSelect: 1, maxSelect: 1, printReceipt: 'never', stationId: null, sort: 1,
         options: [
           opt('g-doneness', 'o-rare', 'Rare', 'RARE', 1),
           opt('g-doneness', 'o-mr', 'Medium rare', 'MED RARE', 2),
@@ -51,7 +52,7 @@ export function seedMenu(): Menu {
         ],
       },
       {
-        id: 'g-sauce', name: 'Nước sốt', kind: 'choice', minSelect: 0, maxSelect: 2, printReceipt: 'if_priced', sort: 2,
+        id: 'g-sauce', name: 'Nước sốt', kind: 'choice', minSelect: 0, maxSelect: 2, printReceipt: 'if_priced', stationId: 'st-cold', sort: 2,
         options: [
           opt('g-sauce', 'o-pepper', 'Sốt tiêu đen', 'TIÊU ĐEN', 1, { isDefault: true }),
           opt('g-sauce', 'o-mushroom', 'Sốt nấm', 'NẤM', 2),
@@ -59,7 +60,7 @@ export function seedMenu(): Menu {
         ],
       },
       {
-        id: 'g-extra', name: 'Món thêm', kind: 'addon', minSelect: 0, maxSelect: null, printReceipt: 'always', sort: 3,
+        id: 'g-extra', name: 'Món thêm', kind: 'addon', minSelect: 0, maxSelect: null, printReceipt: 'always', stationId: null, sort: 3,
         options: [
           opt('g-extra', 'o-egg', 'Thêm trứng ốp la', '+ TRỨNG', 1, { priceDelta: 8000, maxQty: 3 }),
           opt('g-extra', 'o-bread', 'Thêm bánh mì', '+ BÁNH MÌ', 2, { priceDelta: 5000, maxQty: 3 }),
@@ -70,7 +71,7 @@ export function seedMenu(): Menu {
       item({
         id: 'i-steak', categoryId: 'c-steak', name: 'Steak bò nướng', shortName: 'STEAK BÒ', code: '101', prepMinutes: 15, sort: 1,
         hasSizes: true, keywords: ['bít tết', 'beefsteak'],
-        description: 'Gồm 1 miếng steak, 1 trứng ốp la, 1 đĩa salad',
+        description: 'Gồm 1 miếng steak, 1 trứng ốp la, 1 đĩa salad, 1 ổ bánh mì',
         variants: [
           { id: 'v-200', name: '200g', code: '101-200', price: 199000, sort: 1, soldOutUntil: null, archivedAt: null },
           { id: 'v-300', name: '300g', code: '101-300', price: 279000, sort: 2, soldOutUntil: null, archivedAt: null },
@@ -79,7 +80,8 @@ export function seedMenu(): Menu {
         components: [
           comp('k-steak', 'Miếng steak bò', 'STEAK', 1, { unit: 'miếng' }),
           comp('k-egg', 'Trứng ốp la', 'TRỨNG', 2, { unit: 'quả', removable: true, removalDiscount: 3000, addonOptionId: 'o-egg' }),
-          comp('k-salad', 'Salad trộn', 'SALAD', 3, { unit: 'đĩa', removable: true, removalDiscount: 0 }),
+          comp('k-salad', 'Salad trộn', 'SALAD', 3, { unit: 'đĩa', removable: true, removalDiscount: 0, stationId: 'st-cold' }),
+          comp('k-bread', 'Bánh mì', 'BÁNH MÌ', 4, { unit: 'ổ', removable: true, removalDiscount: 0, addonOptionId: 'o-bread', stationId: 'st-cold' }),
         ],
         groups: [
           { groupId: 'g-doneness', sort: 1, minOverride: null, maxOverride: null },

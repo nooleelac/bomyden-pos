@@ -5,6 +5,7 @@
 import { METHOD_LABEL, formatMoney, type PayMethod } from '../lib/billing'
 import type { VatGroup } from '../lib/pricing'
 import type { ShopProfile } from '../floor/types'
+import { showVat } from './config'
 import { DENOMINATIONS, type ShiftSummary } from './shift'
 
 export const WIDTH = 48
@@ -186,6 +187,7 @@ export function itemLines(it: ReceiptItem): string[] {
 
 export function receiptBlocks(d: ReceiptData): Block[] {
   const out: Block[] = header(d.shop)
+  const vatShown = showVat(d.shop)
   const t = (text: string, bold = false) => out.push({ kind: 'text', text, bold })
   const lines = (ls: string[], bold = false) => ls.forEach(l => t(l, bold))
   t(rule('='))
@@ -219,7 +221,8 @@ export function receiptBlocks(d: ReceiptData): Block[] {
   lines(row('Tạm tính', formatMoney(d.subtotal)))
   if (d.discount) lines(row(d.discountLabel || 'Giảm giá', formatMoney(-d.discount)))
   if (d.serviceCharge) lines(row(`Phí phục vụ${d.serviceChargePct ? ` ${d.serviceChargePct}%` : ''}`, formatMoney(d.serviceCharge)))
-  for (const g of d.vat.filter(v => !v.priceIncludesVat)) lines(row(`Thuế GTGT ${g.vatRate}% (trên ${formatMoney(g.base)})`, formatMoney(g.vat)))
+  // VAT added on top stays even when the shop hides VAT (Cài đặt → Thanh toán): without it the total would not add up
+  for (const g of d.vat.filter(v => !v.priceIncludesVat)) lines(row(vatShown ? `Thuế GTGT ${g.vatRate}% (trên ${formatMoney(g.base)})` : 'Thuế', formatMoney(g.vat)))
   if (d.rounding) lines(row('Làm tròn', signed(d.rounding)))
   t(rule('='))
   const paidBefore = d.kind === 'prebill' ? (d.payments ?? []).reduce((s, p) => s + p.amount, 0) : 0
@@ -227,7 +230,7 @@ export function receiptBlocks(d: ReceiptData): Block[] {
   const bigLabel = d.kind === 'prebill' ? (paidBefore ? 'CÒN PHẢI TRẢ' : 'TỔNG CỘNG') : 'TỔNG CỘNG'
   if (paidBefore) lines(row('TỔNG THANH TOÁN', formatMoney(d.total)), true)
   for (const l of row(bigLabel, formatMoney(due) + 'đ', BIG_WIDTH, '')) out.push({ kind: 'text', text: l, big: true })
-  const incl = d.vat.filter(v => v.priceIncludesVat && v.vat > 0)
+  const incl = vatShown ? d.vat.filter(v => v.priceIncludesVat && v.vat > 0) : []
   if (incl.length) {
     t(d.vat.every(v => v.priceIncludesVat) ? 'Giá đã gồm thuế GTGT. Trong đó:' : 'Trong đó thuế GTGT đã gồm trong giá:')
     for (const g of incl) lines(row(`  Thuế GTGT ${g.vatRate}% (trên ${formatMoney(g.base)})`, formatMoney(g.vat)))

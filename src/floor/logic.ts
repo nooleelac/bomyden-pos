@@ -3,7 +3,7 @@
 // The same labels come from order_table_label / order_group_label in SQL (0002).
 
 import type { Menu } from '../menu/types'
-import type { FloorState, Line, Notice, Order, StationTiming, Table, TableState } from './types'
+import type { FloorState, Line, LineStatus, Notice, Order, StationTiming, Table, TableState } from './types'
 
 // ---------------------------------------------------------------- labels
 
@@ -98,7 +98,47 @@ export function heat(elapsedMs: number, t: StationTiming): Heat {
 }
 
 const UNFINISHED = new Set(['new', 'cooking'])
-export const isUnfinished = (l: Line) => UNFINISHED.has(l.status)
+export const isUnfinished = (l: Pick<Line, 'status'>) => UNFINISHED.has(l.status)
+
+// ---------------------------------------------------------------- one dish split by station (0012)
+
+/**
+ * A dish as one station sees it: the dish itself at its own station, or one of its side parts (salad, sốt, bánh mì
+ * of a steak) at another station. Status and times are that part's; mods only those made there.
+ */
+export interface KitchenLine extends Line {
+  /** The station of the side part (also in stationId); null for the dish's own part. */
+  sideStationId: string | null
+  /** Components made here, side parts only: "SALAD", "BÁNH MÌ x2". */
+  parts: string[]
+  /** The dish's other parts and their state ("Quầy rau: Xong" on the steak). */
+  others: { stationId: string; status: LineStatus }[]
+}
+
+/** React key and identity of a kitchen line: one line has one per station. */
+export const kitchenLineKey = (l: Pick<KitchenLine, 'id' | 'sideStationId'>) => `${l.id}|${l.sideStationId ?? ''}`
+
+export function kitchenLines(l: Line): KitchenLine[] {
+  const side = l.sideParts ?? []
+  if (!side.length) return [{ ...l, sideStationId: null, parts: [], others: [] }]
+  const sideIds = new Set(side.map(p => p.stationId))
+  const stateOf = (st: LineStatus): LineStatus => (l.status === 'void' ? 'void' : st)
+  const main: KitchenLine = {
+    ...l, mods: l.mods.filter(m => !m.stationId || !sideIds.has(m.stationId)), sideStationId: null, parts: [],
+    others: side.map(p => ({ stationId: p.stationId, status: stateOf(p.status) })),
+  }
+  return [
+    main,
+    ...side.map((p): KitchenLine => ({
+      ...l, stationId: p.stationId, status: stateOf(p.status), startedAt: p.startedAt, readyAt: p.readyAt, servedAt: p.servedAt,
+      mods: l.mods.filter(m => m.stationId === p.stationId), sideStationId: p.stationId, parts: p.parts,
+      others: [{ stationId: l.stationId, status: l.status }, ...side.filter(x => x !== p).map(x => ({ stationId: x.stationId, status: stateOf(x.status) }))],
+    })),
+  ]
+}
+
+/** Every part at every station, for timers, chase and dishes to carry out. */
+export const allKitchenLines = (s: FloorState, f: (l: Line) => boolean = () => true): KitchenLine[] => s.lines.filter(f).flatMap(kitchenLines)
 
 // ---------------------------------------------------------------- tables on the floor map
 
@@ -119,7 +159,6 @@ export interface TableTile {
 
 export function tableState(s: FloorState, t: Table, orders = openOrdersAt(s, t.id)): TableState {
   if (orders.length === 0) {
-    if (t.needsCleaning) return 'cleaning'
     if (!s.areas.find(a => a.id === t.areaId)?.active) return 'closed'
     return 'free'
   }
@@ -131,7 +170,7 @@ export function tableState(s: FloorState, t: Table, orders = openOrdersAt(s, t.i
 export function tableTile(s: FloorState, t: Table, now: Date): TableTile {
   const orders = openOrdersAt(s, t.id)
   const ids = new Set(orders.map(o => o.id))
-  const lines = s.lines.filter(l => ids.has(l.orderId))
+  const lines = allKitchenLines(s, l => ids.has(l.orderId))
   let kitchenHeat: Heat | null = null
   for (const l of lines.filter(isUnfinished)) {
     const h = heat(now.getTime() - new Date(l.sentAt).getTime(), timingFor(s, l.stationId))
@@ -181,8 +220,8 @@ export interface Ticket {
   sentBy: string
   guests: number | null
   takeaway: boolean
-  /** Lines in send order; void ones only while their HUỶ is not acknowledged. */
-  lines: Line[]
+  /** Lines in send order (side parts as their own lines); void ones only while their HUỶ is not acknowledged. */
+  lines: KitchenLine[]
   /** HUỶ / SỬA / GIỤC still waiting for "Đã biết" (or a decision). */
   notices: Notice[]
   rush: boolean
@@ -202,14 +241,16 @@ export interface Ticket {
 const MOVE_LABEL_MS = 15 * 60_000
 
 export function buildTickets(s: FloorState, now: Date): Ticket[] {
-  const byKey = new Map<string, Line[]>()
+  const byKey = new Map<string, KitchenLine[]>()
   const unacked = s.notices.filter(n => !n.ackAt && n.kind !== 'modify_rejected' && (n.status === 'done' || n.status === 'pending'))
   const voidNotice = new Set(unacked.filter(n => n.kind === 'void' && n.lineId).map(n => n.lineId))
-  for (const l of s.lines) {
-    if (l.replacedBy) continue
-    if (l.status === 'void' && !voidNotice.has(l.id)) continue
-    const k = ticketKey(l)
-    byKey.set(k, [...(byKey.get(k) ?? []), l])
+  for (const line of s.lines) {
+    if (line.replacedBy) continue
+    if (line.status === 'void' && !voidNotice.has(line.id)) continue
+    for (const l of kitchenLines(line)) {
+      const k = ticketKey(l)
+      byKey.set(k, [...(byKey.get(k) ?? []), l])
+    }
   }
   const out: Ticket[] = []
   for (const [key, lines] of byKey) {
@@ -297,14 +338,15 @@ export function lineText(l: Pick<Line, 'name' | 'variantName' | 'mods' | 'note'>
 // ---------------------------------------------------------------- waiter: dishes to carry out
 
 export interface ReadyEntry {
-  line: Line
+  /** A side part (sideStationId set) is carried out on its own, often before the dish. */
+  line: KitchenLine
   order: Order
   label: string
   waitMs: number
 }
 
 export function readyToServe(s: FloorState, now: Date): ReadyEntry[] {
-  return s.lines
+  return allKitchenLines(s)
     .filter(l => l.status === 'ready')
     .flatMap(l => {
       const order = s.orders.find(o => o.id === l.orderId)
@@ -316,7 +358,7 @@ export function readyToServe(s: FloorState, now: Date): ReadyEntry[] {
 
 /** Current wait per station: median minutes of dishes still at the kitchen. */
 export function stationWait(s: FloorState, stationId: string, now: Date): number {
-  const waits = s.lines
+  const waits = allKitchenLines(s)
     .filter(l => l.stationId === stationId && isUnfinished(l))
     .map(l => (now.getTime() - new Date(l.sentAt).getTime()) / 60_000)
     .sort((a, b) => a - b)

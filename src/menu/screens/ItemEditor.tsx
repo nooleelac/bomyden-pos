@@ -12,6 +12,8 @@ export function ItemEditor(props: {
   value: MenuItem
   onSave: (item: MenuItem) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  /** Xoá vĩnh viễn (admin.delete): any dish, also one already sold. */
+  onPurge?: (id: string) => Promise<void>
   onClose: () => void
 }) {
   const { menu } = props
@@ -39,7 +41,7 @@ export function ItemEditor(props: {
   const comps = [...it.components].sort((a, b) => a.sort - b.sort)
   const setComp = (id: string, patch: Partial<Component>) => set({ components: it.components.map(c => (c.id === id ? { ...c, ...patch } : c)) })
   const addComp = () =>
-    set({ components: [...it.components, { id: newId(), name: '', kitchenName: '', qty: 1, unit: '', removable: true, removalDiscount: 0, addonOptionId: null, sort: comps.length + 1, soldOutUntil: null }] })
+    set({ components: [...it.components, { id: newId(), name: '', kitchenName: '', qty: 1, unit: '', removable: true, removalDiscount: 0, addonOptionId: null, stationId: null, sort: comps.length + 1, soldOutUntil: null }] })
 
   const addonOptions = menu.groups.filter(g => g.kind === 'addon' && it.groups.some(l => l.groupId === g.id)).flatMap(g => g.options)
   const toggleGroup = (groupId: string, on: boolean) =>
@@ -62,6 +64,7 @@ export function ItemEditor(props: {
   }
 
   const station = menu.stations.find(s => s.id === (it.stationId ?? cat?.defaultStationId))
+  const prepStations = menu.stations.filter(s => s.kind !== 'none')
   const vat = menu.vatGroups.find(g => g.code === (it.vatGroup ?? cat?.vatGroup))
   const errCount = Object.keys(all).length
 
@@ -148,7 +151,10 @@ export function ItemEditor(props: {
       </Section>
 
       <Section title="Thành phần" error={e.components}>
-        <p className="muted small">Khách được bỏ thì giảm tiền theo mức ở đây; phục vụ không tự gõ số khác. Thành phần chính không bỏ được.</p>
+        <p className="muted small">
+          Khách được bỏ thì giảm tiền theo mức ở đây; phục vụ không tự gõ số khác. Thành phần chính không bỏ được. Thành phần làm ở quầy khác (salad, sốt,
+          bánh mì ở quầy rau) hiện thành phiếu riêng trên màn hình quầy đó; món vẫn là một dòng trên hoá đơn.
+        </p>
         <ul className="rows">
           {comps.map(c => (
             <li key={c.id} className={'edit-row comp-row' + (e[`component:${c.id}`] ? ' has-error' : '')}>
@@ -169,6 +175,10 @@ export function ItemEditor(props: {
                   {addonOptions.map(o => <option key={o.id} value={o.id}>Trùng với: {o.name}</option>)}
                 </select>
               )}
+              <select aria-label="Quầy làm" value={c.stationId ?? ''} onChange={x => setComp(c.id, { stationId: x.target.value || null })}>
+                <option value="">Quầy làm: theo món ({station?.name ?? 'chưa chọn khu'})</option>
+                {prepStations.filter(s => s.id !== station?.id).map(s => <option key={s.id} value={s.id}>Quầy làm: {s.name} (phiếu riêng)</option>)}
+              </select>
               <button type="button" className="icon-btn" aria-label={`Bỏ thành phần ${c.name}`} onClick={() => set({ components: it.components.filter(x => x.id !== c.id) })}>
                 ✕
               </button>
@@ -233,6 +243,16 @@ export function ItemEditor(props: {
         {it.status === 'draft' && !isNew && (
           <button type="button" className="btn btn-danger" disabled={busy} onClick={() => props.onDelete(it.id)}>
             Xoá nháp
+          </button>
+        )}
+        {it.status !== 'draft' && !isNew && props.onPurge && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() => confirm(`Xoá vĩnh viễn món ${props.value.name}? Hoá đơn cũ vẫn giữ tên và giá món. Không khôi phục được.`) && props.onPurge?.(it.id)}
+          >
+            Xoá vĩnh viễn
           </button>
         )}
         {it.status !== 'active' ? (

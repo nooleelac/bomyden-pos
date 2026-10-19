@@ -2,8 +2,8 @@
 // createSupabaseMenuRepo (supabaseRepo.ts) runs the same screens against the database later.
 
 import { seedMenu } from './seed'
-import { soldOutUntilFor, type Category, type Menu, type MenuItem, type ModifierGroup, type SoldOutKind, type SoldOutMode } from './types'
-import { categoryDeleteBlock, validateCategory, validateGroup, validateItem } from './validate'
+import { soldOutUntilFor, type Category, type Menu, type MenuItem, type ModifierGroup, type SoldOutKind, type SoldOutMode, type Station } from './types'
+import { categoryDeleteBlock, stationDeleteBlock, validateCategory, validateGroup, validateItem, validateStation } from './validate'
 
 export interface MenuRepo {
   readonly source: 'sample' | 'supabase'
@@ -20,8 +20,20 @@ export interface MenuRepo {
   deleteItem(id: string): Promise<void>
   reorderItems(ids: string[]): Promise<void>
   saveGroup(g: ModifierGroup): Promise<void>
+  /** Khu chế biến (bếp nướng, bếp lẩu, bar…). */
+  saveStation(st: Station): Promise<void>
+  /** Only a station no category or dish uses. One that old orders used is hidden instead of deleted. */
+  deleteStation(id: string): Promise<void>
+  reorderStations(ids: string[]): Promise<void>
   setSoldOut(kind: SoldOutKind, id: string, mode: SoldOutMode): Promise<string | null>
+  /**
+   * Xoá vĩnh viễn (admin.delete, admin_delete in 0010): a category with its sub-groups and their dishes, any dish
+   * (sold or not), an option group with its options. Old bills keep the dish names.
+   */
+  adminDelete(kind: MenuDeleteKind, id: string): Promise<void>
 }
+
+export type MenuDeleteKind = 'category' | 'item' | 'group'
 
 /** Empty draft dish in a category. */
 export function blankItem(menu: Menu, categoryId: string): MenuItem {
@@ -91,6 +103,46 @@ export function createMemoryMenuRepo(initial: Menu = seedMenu(), opts: { now?: (
       firstError(validateGroup(menu, g))
       const exists = menu.groups.some(x => x.id === g.id)
       commit({ ...menu, groups: exists ? menu.groups.map(x => (x.id === g.id ? structuredClone(g) : x)) : [...menu.groups, structuredClone(g)] })
+    },
+    async saveStation(st) {
+      firstError(validateStation(menu, st))
+      const exists = menu.stations.some(x => x.id === st.id)
+      commit({ ...menu, stations: exists ? menu.stations.map(x => (x.id === st.id ? structuredClone(st) : x)) : [...menu.stations, structuredClone(st)] })
+    },
+    async deleteStation(id) {
+      const block = stationDeleteBlock(menu, id)
+      if (block) throw new Error(block)
+      commit({ ...menu, stations: menu.stations.filter(s => s.id !== id) })
+    },
+    async reorderStations(ids) {
+      const stations = menu.stations.map(s => (ids.includes(s.id) ? { ...s, sort: ids.indexOf(s.id) + 1 } : s))
+      commit({ ...menu, stations: stations.sort((a, b) => a.sort - b.sort) })
+    },
+    async adminDelete(kind, id) {
+      if (kind === 'category') {
+        if (!menu.categories.some(c => c.id === id)) throw new Error('Không tìm thấy nhóm món')
+        const cats = new Set(menu.categories.filter(c => c.id === id || c.parentId === id).map(c => c.id))
+        commit({ ...menu, categories: menu.categories.filter(c => !cats.has(c.id)), items: menu.items.filter(i => !cats.has(i.categoryId)) })
+      } else if (kind === 'item') {
+        if (!menu.items.some(i => i.id === id)) throw new Error('Không tìm thấy món')
+        commit({ ...menu, items: menu.items.filter(i => i.id !== id) })
+      } else if (kind === 'group') {
+        const g = menu.groups.find(x => x.id === id)
+        if (!g) throw new Error('Không tìm thấy nhóm tuỳ chọn')
+        const opts = new Set(g.options.map(o => o.id))
+        commit({
+          ...menu,
+          groups: menu.groups.filter(x => x.id !== id),
+          items: menu.items.map(i => ({
+            ...i,
+            groups: i.groups.filter(l => l.groupId !== id),
+            optionOverrides: i.optionOverrides.filter(o => !opts.has(o.optionId)),
+            components: i.components.map(c => (c.addonOptionId && opts.has(c.addonOptionId) ? { ...c, addonOptionId: null } : c)),
+          })),
+        })
+      } else {
+        throw new Error('Loại cần xoá không hợp lệ')
+      }
     },
     async setSoldOut(kind, id, mode) {
       const until = soldOutUntilFor(mode, menu.settings.businessDayStart, now())

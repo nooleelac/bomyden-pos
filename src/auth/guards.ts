@@ -1,24 +1,33 @@
-// Which screens each role may open (hash routes). The server enforces the same split with RLS and role checks
-// in every RPC (0001–0006); these guards only keep people off screens they cannot use.
+// Which screens a person may open (hash routes), from the permissions the owner gave their role (permissions.ts,
+// Nhân viên → Phân quyền). The server enforces the same permissions with RLS and has_perm() in every RPC (0009);
+// these guards only keep people off screens they cannot use.
 
-import type { Role } from './types'
+import { roleCan, roleCanAny, type Perm, type PermMatrix } from './permissions'
+import { ROLES, type Role } from './types'
 
+/** Manager or owner by role (labels only; what someone may do comes from their permissions). */
 export const isManager = (r: Role | null | undefined): boolean => r === 'manager' || r === 'owner'
 
-export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'orders'
+export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'orders' | 'bills' | 'revenue'
 
-const ACCESS: Record<Screen, Role[]> = {
-  floor: ['waiter', 'cashier', 'manager', 'owner'],
-  'floor-setup': ['cashier', 'manager', 'owner'],          // cashiers add a temporary table; managers edit
-  kitchen: ['kitchen', 'manager', 'owner'],
-  cashier: ['cashier', 'manager', 'owner'],
-  shift: ['cashier', 'manager', 'owner'],
-  staff: ['manager', 'owner'],
-  'menu-order': ['waiter', 'cashier', 'manager', 'owner'],
-  'menu-soldout': ['waiter', 'cashier', 'manager', 'owner'],
-  'menu-admin': ['manager', 'owner'],
-  settings: ['waiter', 'cashier', 'manager', 'owner'],
-  orders: ['waiter', 'cashier', 'manager', 'owner'],
+/** A screen opens with any one of these permissions. */
+const ACCESS: Record<Screen, Perm[]> = {
+  floor: ['order.take'],
+  'floor-setup': ['tables.edit', 'tables.temp'],
+  kitchen: ['kitchen.work'],
+  cashier: ['pay.collect'],
+  shift: ['shift.manage'],
+  staff: ['staff.manage', 'devices.manage', 'audit.view', 'settings.edit'],
+  'menu-order': ['order.take'],
+  'menu-soldout': ['order.take', 'menu.soldout'],
+  'menu-admin': ['menu.edit'],
+  settings: ['order.take', 'shift.manage', 'menu.soldout', 'menu.edit', 'tables.edit', 'tables.temp', 'staff.manage', 'devices.manage', 'audit.view', 'settings.edit'],
+  'payment-settings': ['settings.edit'],
+  orders: ['order.take'],
+  // the database shows bills and payments to pay.collect or shift.manage (0009); Doanh thu goes with Xem nhật ký
+  // (owner and manager by default)
+  bills: ['pay.collect', 'shift.manage'],
+  revenue: ['audit.view'],
 }
 
 export const SCREEN_LABEL: Record<Screen, string> = {
@@ -32,7 +41,10 @@ export const SCREEN_LABEL: Record<Screen, string> = {
   'menu-soldout': 'Hết món',
   'menu-admin': 'Quản lý thực đơn',
   settings: 'Cài đặt',
+  'payment-settings': 'Thanh toán',
   orders: 'Đơn',
+  bills: 'Quản lý hoá đơn',
+  revenue: 'Quản lý doanh thu',
 }
 
 /** The screen a route opens: #/ban, #/ban/caidat, #/bep/…, #/thu-ngan/…, #/ca, #/nhan-vien, #/cai-dat, menu routes. */
@@ -43,26 +55,33 @@ export function screenOf(route: string[]): Screen {
   if (top === 'thu-ngan') return 'cashier'
   if (top === 'ca') return 'shift'
   if (top === 'nhan-vien') return 'staff'
-  if (top === 'cai-dat') return 'settings'
+  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : 'settings'
   if (top === 'don') return 'orders'
+  if (top === 'hoa-don') return 'bills'
+  if (top === 'doanh-thu') return 'revenue'
   if (top === 'soldout') return 'menu-soldout'
   if (top === 'categories' || top === 'items' || top === 'groups') return 'menu-admin'
   return 'menu-order'
 }
 
-export function canOpen(role: Role | null | undefined, route: string[] | Screen): boolean {
+/** With the shop's current permissions, or with `m` (the owner's unsaved edits on Phân quyền). */
+export function canOpen(role: Role | null | undefined, route: string[] | Screen, m?: PermMatrix): boolean {
   if (!role) return false
   const screen = Array.isArray(route) ? screenOf(route) : route
-  return ACCESS[screen].includes(role)
+  return roleCanAny(role, ACCESS[screen], m)
 }
 
-export const allowedRoles = (screen: Screen): Role[] => [...ACCESS[screen]]
+/** Permissions that open a screen (for "cần quyền …" on the blocked screen). */
+export const screenPerms = (screen: Screen): Perm[] => [...ACCESS[screen]]
 
-/** Where a person lands after signing in. */
+/** Roles that may open a screen with the shop's current permissions. */
+export const allowedRoles = (screen: Screen): Role[] => ROLES.filter(r => canOpen(r, screen))
+
+/** Where a person lands after signing in: their role's usual screen, else the first one they may open. */
 export function homeRoute(role: Role): string {
-  if (role === 'kitchen') return 'bep'
-  if (role === 'cashier') return 'thu-ngan'
-  return 'ban'
+  const usual = role === 'kitchen' ? 'bep' : role === 'cashier' ? 'thu-ngan' : 'ban'
+  const order = [usual, 'ban', 'thu-ngan', 'bep', 'cai-dat']
+  return order.find(r => canOpen(role, [r])) ?? usual
 }
 
 export interface NavItem {
@@ -83,25 +102,48 @@ export function navFor(role: Role): NavItem[] {
   return all.filter(l => canOpen(role, l.screen))
 }
 
-/** Cards on #/cai-dat for the screens a role may open. Thực đơn opens the menu editor for managers, Hết món for others. */
+/** Cards on #/cai-dat for the screens a person may open. Thực đơn opens the menu editor with menu.edit, Hết món otherwise. */
 export function settingsFor(role: Role): (NavItem & { hint: string })[] {
   const all: (NavItem & { hint: string })[] = [
     { href: '#/ca', label: 'Ca', icon: '🕒', hint: 'Mở ca, đếm tiền, chốt ca, báo cáo ca', screen: 'shift' },
-    isManager(role)
+    roleCan(role, 'menu.edit')
       ? { href: '#/items', label: 'Thực đơn', icon: '📋', hint: 'Món, nhóm món, tuỳ chọn, giá, hết món', screen: 'menu-admin' }
       : { href: '#/soldout', label: 'Hết món', icon: '📋', hint: 'Báo món hết hôm nay', screen: 'menu-soldout' },
     { href: '#/ban/caidat', label: 'Bàn', icon: '🪑', hint: 'Khu vực, thêm bàn, bàn tạm', screen: 'floor-setup' },
-    { href: '#/nhan-vien', label: 'Nhân viên', icon: '👥', hint: 'Nhân viên, PIN, máy, nhật ký', screen: 'staff' },
+    { href: '#/cai-dat/thanh-toan', label: 'Thanh toán', icon: '💳', hint: 'Tiền mặt, ngân hàng, thẻ, thuế', screen: 'payment-settings' },
+    { href: '#/nhan-vien', label: 'Nhân viên', icon: '👥', hint: role === 'owner' ? 'Nhân viên, phân quyền, PIN, máy, nhật ký' : 'Nhân viên, PIN, máy, nhật ký', screen: 'staff' },
   ]
   return all.filter(i => canOpen(role, i.screen))
 }
 
 /** Screens reached from Cài đặt: the top bar marks Cài đặt and shows a way back. */
-export const isSettingsScreen = (s: Screen): boolean => s !== 'floor' && s !== 'kitchen' && s !== 'cashier' && s !== 'orders'
+export const isSettingsScreen = (s: Screen): boolean => !['floor', 'kitchen', 'cashier', 'orders', 'bills', 'revenue'].includes(s)
 
-/** Menu module tabs a role sees. */
-export function menuTabsFor(role: Role): ('order' | 'categories' | 'items' | 'groups' | 'soldout')[] {
-  if (role === 'kitchen') return []
+/** Menu module tabs a person sees. */
+export function menuTabsFor(role: Role): ('order' | 'categories' | 'items' | 'groups' | 'stations' | 'soldout')[] {
   // dishes are ordered from the floor map (Sơ đồ bàn); #/order stays as a route but has no tab in Cài đặt
-  return isManager(role) ? ['items', 'categories', 'groups', 'soldout'] : ['soldout']
+  if (roleCan(role, 'menu.edit')) return ['items', 'categories', 'groups', 'stations', 'soldout']
+  return canOpen(role, 'menu-soldout') ? ['soldout'] : []
+}
+
+/** Nhân viên tabs: each needs its permission; Phân quyền is the owner's. */
+export type StaffTab = '' | 'quyen' | 'may' | 'caidat' | 'nhatky'
+export function staffTabsFor(role: Role): StaffTab[] {
+  const tabs: [StaffTab, boolean][] = [
+    ['', roleCan(role, 'staff.manage')],
+    ['quyen', role === 'owner'],
+    ['may', roleCan(role, 'devices.manage')],
+    ['caidat', roleCan(role, 'settings.edit')],
+    ['nhatky', roleCan(role, 'audit.view')],
+  ]
+  return tabs.filter(([, ok]) => ok).map(([t]) => t)
+}
+
+/** ☰ → Quản lý: invoices and revenue, for those who may see money. */
+export function manageFor(role: Role): NavItem[] {
+  const all: NavItem[] = [
+    { href: '#/hoa-don', label: 'Quản lý hoá đơn', icon: '🧾', screen: 'bills' },
+    { href: '#/doanh-thu', label: 'Quản lý doanh thu', icon: '📈', screen: 'revenue' },
+  ]
+  return all.filter(l => canOpen(role, l.screen))
 }

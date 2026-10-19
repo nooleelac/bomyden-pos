@@ -4,7 +4,7 @@
 // The floor engine checks approvals through consumeApproval (sample stand-in for the p_approval check in SQL).
 
 import { newId } from '../menu/repo'
-import { isManager } from './guards'
+import { APPROVAL_PERM, DEFAULT_PERMS, PERM_LABEL, PERM_ROLES, cleanPerms, roleCan, type Perm, type PermMatrix } from './permissions'
 import { attemptPin, isLocked, pinProblem, type PinState } from './pin'
 import type { AuthRepo, DeviceRow } from './repo'
 import {
@@ -48,6 +48,8 @@ interface Store {
   sessions: SessionRow[]
   settings: AuthSettings
   audit: AuditRow[]
+  /** What each role may do (0009); missing in stores saved before it: the defaults. */
+  perms?: PermMatrix
 }
 interface Approval extends ApprovalRequest {
   token: string
@@ -203,16 +205,18 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     s.audit.unshift({ id: newId(), at: iso(), action, staffId: staffId === undefined ? (me(s)?.id ?? null) : staffId, approvedBy: approvedBy ?? null, deviceId: myDeviceId, detail })
     s.audit.length = Math.min(s.audit.length, AUDIT_KEEP)
   }
-  const requireManager = (s: Store) => {
-    const m = me(s)
-    if (!m || !isManager(m.role)) fail('Chỉ quản lý hoặc chủ quán được làm việc này')
+  const can = (s: Store, role: Role, perm: Perm) => roleCan(role, perm, s.perms ?? DEFAULT_PERMS)
+  const requirePerm = (s: Store, perm: Perm) => {
+    const m = me(s) ?? fail('Đăng nhập trước khi làm việc này')
+    if (!can(s, m.role, perm)) fail(`Chưa có quyền: ${PERM_LABEL[perm]}`)
     return m
   }
+  /** The owner manages everyone; staff.manage covers waiters, kitchen and cashiers (and one's own PIN). */
   const mayManage = (s: Store, targetRole: Role, targetId: string | null) => {
     const m = me(s)
-    if (m?.role === 'owner') return true
-    if (m?.role === 'manager') return targetRole === 'waiter' || targetRole === 'kitchen' || targetRole === 'cashier' || (targetId !== null && targetId === m.id)
-    return false
+    if (!m) return false
+    if (m.role === 'owner') return true
+    return can(s, m.role, 'staff.manage') && (targetRole === 'waiter' || targetRole === 'kitchen' || targetRole === 'cashier' || (targetId !== null && targetId === m.id))
   }
   const endSessions = (s: Store, staffId: string, keep?: string | null) => {
     for (const r of s.sessions) if (r.staffId === staffId && !r.endedAt && r.token !== keep) r.endedAt = iso()
@@ -269,7 +273,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async saveSettings(p) {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'settings.edit')
       const n = { ...s.settings, ...p }
       if (!Number.isInteger(n.idleMinutes) || n.idleMinutes < 1 || n.idleMinutes > 240) fail('Tự đăng xuất sau 1 đến 240 phút')
       if (!Number.isInteger(n.maxAttempts) || n.maxAttempts < 3 || n.maxAttempts > 10) fail('Số lần nhập sai từ 3 đến 10')
@@ -282,7 +286,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const s = await db()
       const d = device(s) ?? fail('Máy này chưa được đăng ký hoặc đã bị khoá')
       return s.staff
-        .filter(x => x.active && (d.kind === 'pos' || x.role === 'kitchen' || isManager(x.role)))
+        .filter(x => x.active && (d.kind === 'pos' || can(s, x.role, 'kitchen.work')))
         .sort((a, b) => ROSTER_ORDER.indexOf(a.role) - ROSTER_ORDER.indexOf(b.role) || a.name.localeCompare(b.name, 'vi'))
         .map((x): RosterEntry => ({ id: x.id, name: x.name, role: x.role, hasPin: !!x.pinHash, lockedUntil: isLocked(x.lockedUntil, now()) ? x.lockedUntil : null }))
     },
@@ -291,7 +295,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const d = device(s) ?? fail('Máy này chưa được đăng ký hoặc đã bị khoá')
       const row = s.staff.find(x => x.id === staffId && x.active)
       if (!row) return { ok: false, error: 'Không tìm thấy nhân viên hoặc đã ngừng làm' }
-      if (d.kind === 'kitchen' && row.role !== 'kitchen' && !isManager(row.role)) return { ok: false, error: 'Máy bếp chỉ đăng nhập tài khoản bếp hoặc quản lý' }
+      if (d.kind === 'kitchen' && !can(s, row.role, 'kitchen.work')) return { ok: false, error: 'Máy bếp chỉ đăng nhập người có quyền Màn hình bếp' }
       const r = await checkPin(s, row, pin, 'sign_in')
       if (!r.ok) return r
       // this tab's previous person is signed out (the device has one person at a time per screen)
@@ -337,8 +341,8 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const asker = me(s) ?? fail('Đăng nhập trước khi xin quản lý duyệt')
       if (req.action === 'discount' && !(typeof req.amount === 'number' && req.amount > 0)) fail('Ghi số tiền giảm cần duyệt')
       if (req.action === 'void_item' && !req.lineId) fail('Chọn món cần duyệt')
-      const m = s.staff.find(x => x.id === managerId && x.active && isManager(x.role))
-      if (!m) return { ok: false, error: 'Chỉ quản lý hoặc chủ quán duyệt được' }
+      const m = s.staff.find(x => x.id === managerId && x.active && can(s, x.role, APPROVAL_PERM[req.action]))
+      if (!m) return { ok: false, error: 'Người này chưa có quyền duyệt việc này' }
       const r = await checkPin(s, m, pin, `approve_${req.action}`)
       if (!r.ok) return r
       const a: Approval = { ...req, token: randomHex(24), managerId: m.id, requestedBy: asker.id, expiresAt: now().getTime() + s.settings.approvalSeconds * 1000, used: false }
@@ -355,7 +359,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       if (a.expiresAt <= now().getTime()) return null
       if (need.lineId && a.lineId !== need.lineId) return null
       if (need.amount != null && (a.amount ?? 0) < need.amount) return null
-      const m = store.staff.find(x => x.id === a.managerId && x.active && isManager(x.role))
+      const m = store.staff.find(x => x.id === a.managerId && x.active && can(store!, x.role, APPROVAL_PERM[need.action]))
       if (!m) return null
       a.used = true
       audit(store, need.action, { order: need.orderId, ...(need.amount ? { amount: need.amount } : {}), ...(need.lineId ? { line: need.lineId } : {}) }, asker.id, m.id)
@@ -369,7 +373,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async listStaff() {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'staff.manage')
       const t = now()
       return [...s.staff]
         .sort((a, b) => Number(b.active) - Number(a.active) || ADMIN_ORDER.indexOf(a.role) - ADMIN_ORDER.indexOf(b.role) || a.name.localeCompare(b.name, 'vi'))
@@ -385,7 +389,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async saveStaff(inp) {
       const s = await db()
-      const m = requireManager(s)
+      const m = requirePerm(s, 'staff.manage')
       const name = inp.name.trim()
       if (name.length < 1 || name.length > 40) fail('Nhập tên nhân viên (tối đa 40 ký tự)')
       if (!(inp.role in ROLE_LABEL)) fail('Vai trò không hợp lệ')
@@ -414,7 +418,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async resetPin(staffId, pin) {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'staff.manage')
       const row = s.staff.find(x => x.id === staffId) ?? fail('Không tìm thấy nhân viên')
       if (!mayManage(s, row.role, row.id)) fail('Chỉ chủ quán được đặt lại PIN của quản lý hoặc chủ quán')
       await setPin(row, pin)
@@ -424,7 +428,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async setStaffActive(staffId, active) {
       const s = await db()
-      const m = requireManager(s)
+      const m = requirePerm(s, 'staff.manage')
       const row = s.staff.find(x => x.id === staffId) ?? fail('Không tìm thấy nhân viên')
       if (!mayManage(s, row.role, row.id)) fail('Chỉ chủ quán được khoá quản lý hoặc chủ quán')
       if (row.id === m.id && !active) fail('Không tự khoá tài khoản của mình')
@@ -436,12 +440,12 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async devices() {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'devices.manage')
       return s.devices.map(d => ({ ...d }))
     },
     async createDeviceCode(name, kind) {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'devices.manage')
       if (name.trim().length < 1 || name.trim().length > 40) fail('Đặt tên máy (1–40 ký tự)')
       const A = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
       const b = crypto.getRandomValues(new Uint8Array(8))
@@ -454,7 +458,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     },
     async setDeviceActive(id, active) {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'devices.manage')
       const d = s.devices.find(x => x.id === id) ?? fail('Không tìm thấy máy')
       if (!active && d.id === myDeviceId) fail('Đang dùng máy này: khoá từ máy khác')
       d.active = active
@@ -462,14 +466,59 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       audit(s, active ? 'device_on' : 'device_off', { device: d.name })
       save()
     },
+    async adminDelete(kind, id) {
+      const s = await db()
+      const m = requirePerm(s, 'admin.delete')
+      if (kind === 'staff') {
+        const row = s.staff.find(x => x.id === id) ?? fail('Không tìm thấy nhân viên')
+        if (row.id === m.id) fail('Không tự xoá tài khoản của mình')
+        if ((row.role === 'manager' || row.role === 'owner') && m.role !== 'owner') fail('Chỉ chủ quán được xoá quản lý hoặc chủ quán')
+        if (row.role === 'owner' && !s.staff.some(x => x.role === 'owner' && x.active && x.id !== row.id)) fail('Phải còn ít nhất một chủ quán')
+        s.staff = s.staff.filter(x => x.id !== id)
+        s.sessions = s.sessions.filter(r => r.staffId !== id)
+        for (const a of s.audit) {
+          if (a.staffId === id) a.staffId = null
+          if (a.approvedBy === id) a.approvedBy = null
+        }
+        audit(s, 'delete', { kind, name: row.name })
+      } else {
+        const d = s.devices.find(x => x.id === id) ?? fail('Không tìm thấy máy')
+        if (d.id === myDeviceId) fail('Đang dùng máy này: xoá từ máy khác')
+        s.devices = s.devices.filter(x => x.id !== id)
+        s.sessions = s.sessions.filter(r => r.deviceId !== id)
+        for (const a of s.audit) if (a.deviceId === id) a.deviceId = null
+        audit(s, 'delete', { kind, name: d.name })
+      }
+      save()
+    },
     async audit(limit = 100) {
       const s = await db()
-      requireManager(s)
+      requirePerm(s, 'audit.view')
       const nm = (id: string | null) => (id ? (staffOf(s, id)?.name ?? '') : '')
       return s.audit.slice(0, limit).map((a): AuditEntry => ({
         id: a.id, at: a.at, action: a.action, staff: nm(a.staffId), approvedBy: nm(a.approvedBy),
         device: s.devices.find(d => d.id === a.deviceId)?.name ?? '', detail: a.detail,
       }))
+    },
+    async permissions() {
+      const s = await db()
+      return structuredClone(s.perms ?? DEFAULT_PERMS)
+    },
+    async savePermissions(role, perms) {
+      const s = await db()
+      if (me(s)?.role !== 'owner') fail('Chỉ chủ quán được phân quyền')
+      if (!PERM_ROLES.includes(role)) fail('Vai trò không hợp lệ')
+      const bad = perms.find(p => !cleanPerms([p]).length)
+      if (bad) fail(`Quyền không hợp lệ: ${bad}`)
+      const all = s.perms ?? DEFAULT_PERMS
+      const was = all[role]
+      const next = cleanPerms(perms)
+      s.perms = { ...all, [role]: next }
+      const added = next.filter(p => !was.includes(p))
+      const removed = was.filter(p => !next.includes(p))
+      if (added.length || removed.length) audit(s, 'permissions', { role, added, removed })
+      save()
+      return [...next]
     },
     subscribe(fn) {
       listeners.add(fn)

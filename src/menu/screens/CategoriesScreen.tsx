@@ -1,4 +1,5 @@
-// Manager: categories in 2 levels, with order, colour, hide, default station and VAT group.
+// Manager: categories in 2 levels, with order, colour, hide, default station and VAT group. Xoá vĩnh viễn
+// (admin.delete) deletes a category with its sub-groups and their dishes.
 
 import { useState } from 'react'
 import { newId, type MenuRepo } from '../repo'
@@ -6,7 +7,7 @@ import { CATEGORY_COLORS, type Category, type Menu } from '../types'
 import { categoryDeleteBlock, validateCategory } from '../validate'
 import { Field, Switch } from '../ui'
 
-export function CategoriesScreen(props: { menu: Menu; repo: MenuRepo; onError: (m: string) => void }) {
+export function CategoriesScreen(props: { menu: Menu; repo: MenuRepo; purge?: boolean; onError: (m: string) => void }) {
   const { menu, repo } = props
   const [edit, setEdit] = useState<Category | null>(null)
   const sorted = (parentId: string | null) => menu.categories.filter(c => c.parentId === parentId).sort((a, b) => a.sort - b.sort)
@@ -71,12 +72,28 @@ export function CategoriesScreen(props: { menu: Menu; repo: MenuRepo; onError: (
           </li>,
         ])}
       </ul>
-      {edit && <CategoryForm menu={menu} value={edit} onCancel={() => setEdit(null)} onSave={c => run(repo.saveCategory(c).then(() => setEdit(null)))} onDelete={id => run(repo.deleteCategory(id).then(() => setEdit(null)))} />}
+      {edit && (
+        <CategoryForm
+          menu={menu}
+          value={edit}
+          onCancel={() => setEdit(null)}
+          onSave={c => run(repo.saveCategory(c).then(() => setEdit(null)))}
+          onDelete={id => run(repo.deleteCategory(id).then(() => setEdit(null)))}
+          onPurge={props.purge ? id => run(repo.adminDelete('category', id).then(() => setEdit(null))) : undefined}
+        />
+      )}
     </div>
   )
 }
 
-function CategoryForm(props: { menu: Menu; value: Category; onSave: (c: Category) => void; onCancel: () => void; onDelete: (id: string) => void }) {
+function CategoryForm(props: {
+  menu: Menu
+  value: Category
+  onSave: (c: Category) => void
+  onCancel: () => void
+  onDelete: (id: string) => void
+  onPurge?: (id: string) => void
+}) {
   const { menu } = props
   const [c, setC] = useState(props.value)
   const [tried, setTried] = useState(false)
@@ -87,6 +104,13 @@ function CategoryForm(props: { menu: Menu; value: Category; onSave: (c: Category
   const save = () => {
     setTried(true)
     if (Object.keys(validateCategory(menu, c)).length === 0) props.onSave({ ...c, name: c.name.trim() })
+  }
+  const purge = () => {
+    const kids = menu.categories.filter(x => x.parentId === c.id)
+    const ids = new Set([c.id, ...kids.map(x => x.id)])
+    const dishes = menu.items.filter(i => ids.has(i.categoryId)).length
+    const what = [kids.length && `${kids.length} nhóm con`, dishes && `${dishes} món`].filter(Boolean).join(' và ')
+    if (confirm(`Xoá vĩnh viễn nhóm ${props.value.name}${what ? ` cùng ${what} trong nhóm` : ''}? Hoá đơn cũ vẫn giữ tên món. Không khôi phục được.`)) props.onPurge?.(c.id)
   }
   return (
     <div className="sheet-backdrop" onClick={props.onCancel}>
@@ -148,16 +172,22 @@ function CategoryForm(props: { menu: Menu; value: Category; onSave: (c: Category
           <Switch label="Hiện trên máy order" checked={c.visible} onChange={v => setC({ ...c, visible: v })} />
         </div>
         <footer className="sheet-foot">
-          {!isNew && (
-            <button type="button" className="btn btn-danger" disabled={!!delBlock} title={delBlock ?? ''} onClick={() => props.onDelete(c.id)}>
-              Xoá
+          {!isNew && delBlock && props.onPurge ? (
+            <button type="button" className="btn btn-danger" onClick={purge}>
+              Xoá vĩnh viễn
             </button>
+          ) : (
+            !isNew && (
+              <button type="button" className="btn btn-danger" disabled={!!delBlock} title={delBlock ?? ''} onClick={() => props.onDelete(c.id)}>
+                Xoá
+              </button>
+            )
           )}
           <button type="button" className="btn btn-primary btn-grow" onClick={save}>
             Lưu nhóm
           </button>
         </footer>
-        {delBlock && <p className="muted small center">{delBlock}</p>}
+        {delBlock && !props.onPurge && <p className="muted small center">{delBlock}</p>}
       </div>
     </div>
   )

@@ -149,6 +149,7 @@ main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
 .comp-row > select[aria-label='Loại thành phần'] { grid-column: 1; grid-row: 2; }
 .comp-row > .money, .comp-row > span.muted:not(.comp-preview) { grid-column: 2 / 4; grid-row: 2; }
 .comp-row > select[aria-label='Món thêm tương ứng'] { grid-column: 1 / -1; grid-row: 3; }
+.comp-row > select[aria-label='Quầy làm'] { grid-column: 1 / -1; grid-row: 4; }
 .opt-row > .money { grid-column: 1; grid-row: 2; }
 .opt-row > label { grid-column: 2 / 4; grid-row: 2; }
 .w-qty { width: 64px !important; }

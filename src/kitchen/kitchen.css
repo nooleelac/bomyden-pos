@@ -1,4 +1,4 @@
-/* Kitchen display: bright like the rest of the app (inside the app frame, stations in the left rail), big type, big targets. Tickets grow with their dishes (never clipped); the board scrolls only when a page is taller than the screen. Font scale per device (Lớn / Rất lớn / Cực lớn). */
+/* Kitchen display: bright like the rest of the app (inside the app frame, stations in the left rail), type sized to read from about 1 m, compact targets. Tickets grow with their dishes (never clipped); every ticket is on one board that scrolls up and down (no pages). Font scale per device (Nhỏ / Vừa / Lớn); display settings sit under the stations in the left rail. */
 
 .kds {
   --k-bg: #eaeffc;
@@ -13,14 +13,14 @@
   --k-yellow: #b25e00;
   --k-red: #e5383b;
   --k-purple: #8b5cf6;
-  --fs: 18px;
+  --fs: 15px;
   position: relative; min-width: 0; height: 100%; overflow: hidden; display: flex; flex-direction: column;
   background: var(--k-bg); color: var(--k-text); font: var(--fs)/1.25 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; text-align: left;
 }
 .kds *, .kds *::before, .kds *::after { box-sizing: border-box; }
-.kds.font-l { --fs: 16px; }
-.kds.font-xl { --fs: 19px; }
-.kds.font-xxl { --fs: 23px; }
+.kds.font-l { --fs: 13px; }
+.kds.font-xl { --fs: 15px; }
+.kds.font-xxl { --fs: 18px; }
 .kds.high-contrast { --k-bg: #fff; --k-card: #fff; --k-line: #000; --k-text: #000; --k-muted: #000; }
 .kds button, .kds select { font: inherit; color: inherit; }
 .kds a { color: var(--k-blue); }
@@ -30,70 +30,68 @@
 .kds-station { min-height: 140px; border-radius: 16px; border: 2px solid var(--k-line); background: var(--k-card); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
 .kds-station b { font-size: 1.6em; }
 
-.kds-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--k-card); border-bottom: 1px solid var(--k-line); flex-wrap: wrap; font-size: .8em; }
-.kds-station-name { font-size: 1.4em; font-weight: 800; color: var(--k-text) !important; text-decoration: none; }
+.kds-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 12px; background: var(--k-card); border-bottom: 1px solid var(--k-line); flex-wrap: wrap; font-size: .8em; }
+.kds-station-name { font-size: 1.25em; font-weight: 800; color: var(--k-text) !important; text-decoration: none; }
 .kds-load { display: flex; gap: 12px; }
 .kds-count { color: var(--k-muted); }
-.kds-clock { margin-left: auto; font-weight: 800; font-size: 1.3em; font-variant-numeric: tabular-nums; }
-.kds-btn { min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--k-line); background: var(--k-card); color: var(--k-text); cursor: pointer; font-weight: 700; }
+.kds-clock { margin-left: auto; font-weight: 800; font-size: 1.15em; font-variant-numeric: tabular-nums; }
+.kds-btn { min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--k-line); background: var(--k-card); color: var(--k-text); cursor: pointer; font-weight: 700; }
 .kds-btn.is-on { background: var(--k-blue); border-color: var(--k-blue); color: #fff; }
 .kds-btn:disabled { opacity: .35; cursor: default; }
 .kds-start { background: var(--k-late); border-color: var(--k-late); color: #fff; }
 .kds-start .muted-icon { color: #fff; }
-.kds-bar select { min-height: 44px; border-radius: 10px; background: var(--k-card); border: 1px solid var(--k-line); padding: 0 8px; }
 .kds-check { display: inline-flex; align-items: center; gap: 6px; }
 .kds-check input { width: 22px; height: 22px; }
 
 .kds-grid {
-  flex: 1; min-height: 0; width: 100%; max-width: none; margin: 0; display: grid; gap: 10px; padding: 10px; overflow-y: auto; position: relative;
+  flex: 1; min-height: 0; width: 100%; max-width: none; margin: 0; display: grid; gap: 8px; padding: 8px; overflow-y: auto; position: relative;
   grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); align-items: start; align-content: start;
 }
-.kds-col { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.kds-more {
-  grid-column: 1 / -1; position: sticky; bottom: 0; justify-self: center; z-index: 2; min-height: 52px; padding: 0 22px;
-  border-radius: 26px; border: 0; background: var(--k-blue); color: #fff; font-weight: 900; cursor: pointer; box-shadow: 0 4px 16px rgba(20, 30, 50, .3);
-}
+.kds-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .kds-empty { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--k-muted); font-size: 1.5em; }
 
-.ticket { flex: none; display: flex; flex-direction: column; background: var(--k-card); border: 3px solid var(--k-ok); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(42, 58, 92, .08); }
+.ticket { flex: none; display: flex; flex-direction: column; background: var(--k-card); border: 2px solid var(--k-ok); border-radius: 10px; overflow: hidden; box-shadow: 0 2px 6px rgba(42, 58, 92, .08); }
 .ticket.heat-warn { border-color: var(--k-warn); }
 .ticket.heat-late { border-color: var(--k-late); animation: kds-blink 1s steps(2) infinite; }
 .ticket.is-urgent { box-shadow: 0 0 0 3px var(--k-red) inset; }
 .ticket.is-selected { outline: 4px solid var(--k-blue); outline-offset: -1px; }
 @keyframes kds-blink { 50% { border-color: #f6b9ba; } }
 .ticket-head {
-  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 6px 10px; border: 0; cursor: pointer; text-align: left;
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 8px; border: 0; cursor: pointer; text-align: left;
   background: var(--k-ok); color: #fff;
 }
 .heat-warn .ticket-head { background: var(--k-warn); color: #111; }
 .heat-late .ticket-head { background: var(--k-late); }
 .is-takeaway .ticket-head { background: var(--k-purple); color: #fff; }
 .ticket-pos { flex: none; width: 1.5em; height: 1.5em; border-radius: 50%; background: rgba(0,0,0,.2); display: inline-flex; align-items: center; justify-content: center; font-size: .8em; font-weight: 800; }
-.ticket-table { flex: 1 1 auto; min-width: 0; white-space: nowrap; font-size: 1.75em; font-weight: 900; line-height: 1.05; letter-spacing: .01em; }
-.ticket-timer { flex: none; margin-left: auto; font-size: 1.25em; font-weight: 800; font-variant-numeric: tabular-nums; }
-.ticket-sub { flex: none; display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 4px 10px; font-size: .72em; color: var(--k-muted); border-bottom: 1px solid var(--k-line); }
+.ticket-table { flex: 1 1 auto; min-width: 0; white-space: nowrap; font-size: 1.4em; font-weight: 900; line-height: 1.05; letter-spacing: .01em; }
+.ticket-timer { flex: none; margin-left: auto; font-size: 1.1em; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ticket-sub { flex: none; display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 3px 8px; font-size: .75em; color: var(--k-muted); border-bottom: 1px solid var(--k-line); }
 .ticket-group { color: var(--k-yellow); font-weight: 700; }
 .ticket-flags { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px; }
 .ticket-flags:not(:empty) { padding: 6px 8px 0; }
 .flag { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; font-weight: 900; font-size: .8em; }
-.flag .kds-btn { min-height: 36px; padding: 0 10px; font-size: .9em; }
+.flag .kds-btn { min-height: 30px; padding: 0 10px; font-size: .9em; }
 .flag-rush, .flag-chase { background: var(--k-red); color: #fff; }
 .flag-recall { background: #ffb020; color: #111; }
 .flag-move { background: var(--k-blue); color: #fff; }
-.ticket-note { flex: none; margin: 6px 8px 0; padding: 4px 8px; line-height: 1.2; border: 3px solid #ffb020; background: #fff8e6; border-radius: 8px; font-weight: 700; display: flex; flex-direction: column; font-size: .9em; }
+.ticket-note { flex: none; margin: 6px 8px 0; padding: 3px 8px; line-height: 1.2; border: 2px solid #ffb020; background: #fff8e6; border-radius: 8px; font-weight: 700; display: flex; flex-direction: column; font-size: .9em; }
 .ticket-note.is-allergy { border-color: var(--k-red); color: var(--k-red); background: #fdecec; }
 .ticket-lines { flex: none; list-style: none; margin: 0; padding: 4px 0; }
 .tl { border-bottom: 1px solid var(--k-line); }
-.tl-main { color: var(--k-text); width: 100%; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: flex-start; padding: 7px 10px; background: none; border: 0; text-align: left; cursor: pointer; min-height: 52px; }
+.tl-main { color: var(--k-text); width: 100%; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: flex-start; padding: 5px 8px; background: none; border: 0; text-align: left; cursor: pointer; min-height: 40px; }
 .tl-main:disabled { cursor: default; }
-.tl-qty { flex: none; min-width: 1.4em; font-size: 1.35em; font-weight: 900; line-height: 1.05; }
+.tl-qty { flex: none; min-width: 1.4em; font-size: 1.2em; font-weight: 900; line-height: 1.05; }
 .tl-body { flex: 1 1 4em; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 1px; }
-.tl-name { font-size: 1.1em; font-weight: 800; }
+.tl-name { font-size: 1.05em; font-weight: 800; }
 .tl-size { font-weight: 800; color: var(--k-yellow); }
 .tl-opt { color: var(--k-yellow); font-weight: 700; }
 .tl-removal { color: var(--k-red); font-weight: 900; }
 .tl-addon { color: #0b7285; font-weight: 700; }
 .tl-note { font-style: italic; color: var(--k-muted); }
+.tl-side-tag { font-size: .7em; font-weight: 700; color: var(--k-muted); text-transform: uppercase; }
+.tl-parts { font-weight: 900; }
+.tl-others { font-size: .8em; color: var(--k-muted); }
 .tl-state { flex: none; margin-left: auto; align-self: flex-start; padding: 2px 8px; border-radius: 6px; font-size: .7em; font-weight: 800; background: #dbe2f1; color: var(--k-text); }
 .tl-state.st-cooking, .tl-state.st-ready { color: #fff; }
 .tl-state.st-cooking { background: var(--k-blue); }
@@ -102,8 +100,8 @@
 .tl-served { opacity: .4; text-decoration: line-through; }
 .tl-void .tl-main { text-decoration: line-through; text-decoration-color: var(--k-red); text-decoration-thickness: 3px; color: var(--k-red); }
 .tl-void .tl-state { background: var(--k-red); }
-.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; font-weight: 700; }
-.notice .kds-btn { min-height: 40px; margin-left: auto; }
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; font-weight: 700; }
+.notice .kds-btn { min-height: 34px; margin-left: auto; }
 .notice-void { background: #fdecec; }
 .notice-modify { background: #fff3e0; }
 .notice-badge { padding: 1px 8px; border-radius: 6px; font-weight: 900; font-size: 1.05em; }
@@ -113,11 +111,9 @@
 .notice-old, .notice-new { flex: 1 1 100%; }
 .notice-new b { color: var(--k-yellow); }
 .btn-pair { display: inline-flex; gap: 6px; margin-left: auto; }
-.ticket-bump { flex: none; min-height: 52px; border: 0; border-top: 1px solid var(--k-line); background: var(--k-bg); color: var(--k-text); font-weight: 800; cursor: pointer; }
+.ticket-bump { flex: none; min-height: 38px; border: 0; border-top: 1px solid var(--k-line); background: var(--k-bg); color: var(--k-text); font-weight: 800; cursor: pointer; }
 .ticket-bump:disabled { opacity: .35; }
 
-.kds-pages { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 0 10px 10px; }
-.kds-next { background: var(--k-blue); border-color: var(--k-blue); min-height: 56px; font-size: 1.05em; }
 .kds-undo, .kds-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 12px 18px; border-radius: 12px; font-weight: 700; }
 .kds-undo { background: var(--k-text); color: #fff; }
 .kds-undo .kds-btn { background: transparent; color: #fff; border-color: rgba(255,255,255,.5); }
@@ -131,11 +127,23 @@
 /* inside the app frame: rail of stations on the left, the board fills the rest of the screen */
 .kitchen-app { padding-bottom: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 .kds-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); }
-@media (min-width: 900px) { .kds-shell { grid-template-columns: 160px minmax(0, 1fr); } }
+@media (min-width: 900px) { .kds-shell { grid-template-columns: 140px minmax(0, 1fr); } }
 .kitchen-app:has(.bottom-nav) .kds-shell { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
 .kds-rail { position: static; min-height: 0; overflow-y: auto; }
-.kds-rail .rail-item { min-height: 76px; font-size: 16px; }
+.kds-rail .rail-item { min-height: 52px; padding: 6px; font-size: 14px; }
 .rail-count.is-calm { background: var(--accent); }
 .rail-late { font-size: 12px; font-weight: 800; color: var(--danger); }
-.kds-bar select { width: auto; }
-.kds-bar .kds-check input { width: 22px; }
+/* rail tools: waiting count, sound, done tickets and display settings, pushed under the stations */
+.kds-tools { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 6px; border-top: 1px solid var(--line); font-size: 13px; }
+.kds-tools .kds-count { margin: 0; text-align: center; color: var(--muted); }
+.kds-tools .kds-count b { display: block; font-size: 22px; color: var(--slate); }
+.kds-tools .kds-btn { min-height: 36px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--slate); font: inherit; font-weight: 700; cursor: pointer; }
+.kds-tools .kds-btn.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.kds-tools .kds-start { background: #e5383b; border-color: #e5383b; color: #fff; }
+.kds-settings summary { min-height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; font-weight: 700; color: var(--slate); }
+.kds-settings[open] summary { background: var(--bg); }
+.kds-settings label { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; color: var(--muted); }
+.kds-settings select { width: 100%; min-height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font: inherit; }
+.kds-settings .kds-check { flex-direction: row; align-items: center; gap: 6px; color: var(--slate); }
+.kds-settings .kds-check input { width: 18px; height: 18px; }
+.kds-settings .kds-btn { width: 100%; margin-top: 6px; }
