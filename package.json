@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "deploy": "npm run build && wrangler deploy --name wandering-sunset-5e4e --assets ./dist --compatibility-date 2026-10-01"
+    "deploy": "npm run build && wrangler deploy --name wandering-sunset-5e4e --assets ./dist --compatibility-date 2026-10-01 && wrangler pages deploy ./dist --project-name bomyden-pos --branch main --commit-dirty=true"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
