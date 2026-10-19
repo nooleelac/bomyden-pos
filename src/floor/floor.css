@@ -202,6 +202,13 @@
 .bell-panel ul { list-style: none; margin: 0; padding: 0; }
 .bell-panel li a { display: flex; align-items: flex-start; gap: 10px; padding: 10px 16px; color: inherit; text-decoration: none; border-top: 1px solid var(--line); font-size: 14px; }
 .bell-panel li.is-new a { background: var(--accent-soft); }
+.push-toggle { margin: 0 12px 8px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); }
+.push-toggle.is-on { display: flex; align-items: center; gap: 8px; background: transparent; border: 1px solid var(--line); }
+.bell-panel .push-toggle p { margin: 0; flex: 1; }
+.push-btn { margin-top: 8px; width: 100%; min-height: 44px; border: 0; border-radius: 10px; background: var(--accent, #0a84ff); color: #fff; font-weight: 700; font-size: 15px; }
+.push-actions { display: flex; gap: 4px; flex: none; }
+.push-link { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px; }
+.bell-panel .push-error { color: #c62828; margin-top: 6px; }
 .bell-icon { flex: none; font-size: 18px; }
 .bell-text { flex: 1; min-width: 0; }
 .bell-time { flex: none; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }

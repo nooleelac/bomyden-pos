@@ -12,6 +12,7 @@ import { clock } from '../floor/logic'
 import { EVENT_ICON, floorEvents, type FloorEvent } from '../floor/notify'
 import type { FloorRepo } from '../floor/repo'
 import type { FloorState } from '../floor/types'
+import { disablePush, enablePush, pushState, testPush, type PushState } from '../push/push'
 
 /** Top bar + bottom tab bar + drawer. */
 export function TopBar() {
@@ -108,6 +109,7 @@ function Bell(props: { repo: FloorRepo }) {
           <div className="bell-backdrop" onClick={() => setOpen(false)} />
           <section className="bell-panel" aria-label="Thông báo">
             <h2>Thông báo</h2>
+            <PushToggle />
             {events.length === 0 && <p className="muted small">Chưa có thông báo trong 12 giờ qua.</p>}
             <ul>
               {events.map(e => (
@@ -130,6 +132,58 @@ function Bell(props: { repo: FloorRepo }) {
           <span aria-hidden>{EVENT_ICON[pop.kind]}</span> {eventText(pop)}
         </a>
       )}
+    </div>
+  )
+}
+
+const PUSH_NOTE: Record<PushState, string> = {
+  unsupported: '',
+  'need-install': 'iPhone/iPad: bấm Chia sẻ → Thêm vào Màn hình chính, mở app từ biểu tượng đó rồi bật thông báo.',
+  denied: 'Trình duyệt đang chặn thông báo: mở cài đặt trang web (biểu tượng ổ khoá) → Thông báo → Cho phép.',
+  off: 'Nhận thông báo mọi hoạt động trên máy này, kể cả khi đã tắt app hoặc khoá màn hình.',
+  on: 'Máy này đang nhận thông báo mọi hoạt động.',
+}
+
+/** Turns Web Push on / off for this device (top of the bell panel; hidden in sample mode). */
+function PushToggle() {
+  const [state, setState] = useState<PushState | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    pushState().then(setState, () => setState('unsupported'))
+  }, [])
+  if (!state || state === 'unsupported') return null
+  const run = (f: () => Promise<PushState | void>) => async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const s = await f()
+      if (s) setState(s)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className={'push-toggle' + (state === 'on' ? ' is-on' : '')}>
+      <p className="small">{PUSH_NOTE[state]}</p>
+      {state === 'off' && (
+        <button type="button" className="push-btn" disabled={busy} onClick={run(enablePush)}>
+          {busy ? 'Đang bật…' : '🔔 Bật thông báo trên máy này'}
+        </button>
+      )}
+      {state === 'on' && (
+        <span className="push-actions">
+          <button type="button" className="push-link" disabled={busy} onClick={run(testPush)}>
+            Gửi thử
+          </button>
+          <button type="button" className="push-link" disabled={busy} onClick={run(disablePush)}>
+            Tắt
+          </button>
+        </span>
+      )}
+      {error && <p className="small push-error">{error}</p>}
     </div>
   )
 }

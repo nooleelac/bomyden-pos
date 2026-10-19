@@ -15,6 +15,7 @@ import { sampleBillHistory, sampleEvening } from './floor/seed'
 import type { BillHistory } from './floor/types'
 import { MenuApp } from './menu/MenuApp'
 import { SettingsApp } from './settings/SettingsApp'
+import { setPushClient } from './push/push'
 import { createMemoryMenuRepo, type MenuRepo } from './menu/repo'
 import { seedMenu } from './menu/seed'
 import type { Menu } from './menu/types'
@@ -48,6 +49,7 @@ async function connect(): Promise<Repos> {
     const { createClient } = await import('@supabase/supabase-js')
     // the device is the Supabase user; the person signed in with a PIN rides on every request (x-staff-session)
     db = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY, { global: { fetch: staffFetch } })
+    setPushClient(db)
   }
   const sampleAuth = authFromDb ? null : createMemoryAuthRepo({ sync: { storageKey: 'bmd-auth-v1', sessionKey: 'bmd-auth-session', channel: 'bmd-auth' } })
   const auth = sampleAuth ?? (await import('./auth/supabaseRepo')).createSupabaseAuthRepo(db!)
