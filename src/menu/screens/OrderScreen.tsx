@@ -138,8 +138,8 @@ export function OrderScreen(props: {
                   return (
                     <li key={item.id} className={'item-card' + (block ? ' is-out' : '')} style={{ ['--cat' as string]: color }}>
                       <button type="button" className="item-card-main" disabled={!!block} onClick={() => openItem(item)}>
+                        {item.imageUrl && <img className="item-card-img" src={item.imageUrl} alt="" loading="lazy" />}
                         <span className="item-card-name">{item.name}</span>
-                        <span className="item-card-code">{item.code}</span>
                         <span className="item-card-price">{block ?? (sizes.length > 1 ? `${sizes.length} giá · ${priceLabel(item)}` : priceLabel(item))}</span>
                       </button>
                       {sizes.length > 0 && !block && (

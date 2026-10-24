@@ -19,6 +19,8 @@ export interface MenuRepo {
   /** Only drafts that were never sold; everything else is archived instead. */
   deleteItem(id: string): Promise<void>
   reorderItems(ids: string[]): Promise<void>
+  /** Stores a dish photo (already shrunk by the editor) and returns its URL; saveItem keeps it on the dish. */
+  uploadImage(itemId: string, image: Blob): Promise<string>
   saveGroup(g: ModifierGroup): Promise<void>
   /** Khu chế biến (bếp nướng, bếp lẩu, bar…). */
   saveStation(st: Station): Promise<void>
@@ -39,7 +41,7 @@ export type MenuDeleteKind = 'category' | 'item' | 'group'
 export function blankItem(menu: Menu, categoryId: string): MenuItem {
   return {
     id: newId(), categoryId, name: '', shortName: '', code: '', unit: 'phần', stationId: null, prepMinutes: null, status: 'draft',
-    description: '', keywords: [], price: 0, hasSizes: false, vatGroup: null, priceIncludesVat: null, discountable: true, serviceCharge: true,
+    description: '', keywords: [], imageUrl: null, price: 0, hasSizes: false, vatGroup: null, priceIncludesVat: null, discountable: true, serviceCharge: true,
     soldOutUntil: null, sort: menu.items.filter(i => i.categoryId === categoryId).length + 1, variants: [], components: [], groups: [], optionOverrides: [],
   }
 }
@@ -98,6 +100,15 @@ export function createMemoryMenuRepo(initial: Menu = seedMenu(), opts: { now?: (
     },
     async reorderItems(ids) {
       commit({ ...menu, items: menu.items.map(i => (ids.includes(i.id) ? { ...i, sort: ids.indexOf(i.id) + 1 } : i)) })
+    },
+    // Sample menu: a data URL lives as long as the page, which is all the sample needs.
+    async uploadImage(_itemId, image) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => resolve(String(r.result))
+        r.onerror = () => reject(r.error)
+        r.readAsDataURL(image)
+      })
     },
     async saveGroup(g) {
       firstError(validateGroup(menu, g))

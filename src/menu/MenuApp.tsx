@@ -117,6 +117,7 @@ export function MenuApp(props: { repo: MenuRepo; role: Role }) {
             menu={menu}
             value={editing ?? blankItem(menu, menu.categories[0]?.id ?? '')}
             onSave={i => repo.saveItem(i)}
+            onUploadImage={(id, img) => repo.uploadImage(id, img)}
             onDelete={id => repo.deleteItem(id).then(() => go('items'), e => onError(String(e)))}
             onPurge={purge ? id => repo.adminDelete('item', id).then(() => go('items'), e => onError(e instanceof Error ? e.message : String(e))) : undefined}
             onClose={() => go('items')}

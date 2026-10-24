@@ -76,7 +76,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
       items: items.map(r => ({
         id: s(r.id), categoryId: s(r.category_id), name: s(r.name), shortName: s(r.short_name), code: s(r.code), unit: s(r.unit),
         stationId: sn(r.station_id), prepMinutes: nn(r.prep_minutes), status: r.status as MenuItem['status'],
-        description: s(r.description), keywords: (r.keywords as string[] | null) ?? [], price: n(r.price), hasSizes: r.has_sizes === true,
+        description: s(r.description), keywords: (r.keywords as string[] | null) ?? [], imageUrl: sn(r.image_url), price: n(r.price), hasSizes: r.has_sizes === true,
         vatGroup: sn(r.vat_group), priceIncludesVat: r.price_includes_vat == null ? null : r.price_includes_vat === true,
         discountable: r.discountable !== false, serviceCharge: r.service_charge !== false, soldOutUntil: sn(r.sold_out_until), sort: n(r.sort),
         variants: variants.filter(v => v.item_id === r.id).map(v => ({
@@ -130,7 +130,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     async saveItem(it) {
       await ok(db.from('menu_items').upsert({
         id: it.id, category_id: it.categoryId, name: it.name.trim(), short_name: it.shortName.trim(), code: it.code.trim(), unit: it.unit,
-        station_id: it.stationId, prep_minutes: it.prepMinutes, status: it.status, description: it.description, keywords: it.keywords,
+        station_id: it.stationId, prep_minutes: it.prepMinutes, status: it.status, description: it.description, keywords: it.keywords, image_url: it.imageUrl,
         price: it.hasSizes ? 0 : it.price, has_sizes: it.hasSizes, vat_group: it.vatGroup, price_includes_vat: it.priceIncludesVat,
         discountable: it.discountable, service_charge: it.serviceCharge, sort: it.sort,
       }))
@@ -167,6 +167,13 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     },
     async reorderItems(ids) {
       await Promise.all(ids.map((id, i) => ok(db.from('menu_items').update({ sort: i + 1 }).eq('id', id))))
+    },
+    // A new file name per upload, so devices holding the old URL in cache see the new photo.
+    async uploadImage(itemId, image) {
+      const path = `${itemId}/${Date.now()}.webp`
+      const { error } = await db.storage.from('menu-images').upload(path, image, { contentType: image.type || 'image/webp', cacheControl: '31536000' })
+      if (error) throw new Error(error.message)
+      return db.storage.from('menu-images').getPublicUrl(path).data.publicUrl
     },
     async saveGroup(g) {
       await ok(db.from('modifier_groups').upsert({

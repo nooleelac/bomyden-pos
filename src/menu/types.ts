@@ -139,6 +139,8 @@ export interface MenuItem {
   status: ItemStatus
   description: string
   keywords: string[]
+  /** Photo on the order screen tile (menu-images bucket, 0021). null = name only. */
+  imageUrl: string | null
   /** Used only when hasSizes is false. */
   price: number
   hasSizes: boolean

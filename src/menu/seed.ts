@@ -12,7 +12,7 @@ const comp = (id: string, name: string, kitchenName: string, sort: number, extra
 })
 
 const item = (x: Partial<MenuItem> & Pick<MenuItem, 'id' | 'categoryId' | 'name' | 'shortName' | 'code'>): MenuItem => ({
-  unit: 'phần', stationId: null, prepMinutes: null, status: 'active', description: '', keywords: [], price: 0, hasSizes: false,
+  unit: 'phần', stationId: null, prepMinutes: null, status: 'active', description: '', keywords: [], imageUrl: null, price: 0, hasSizes: false,
   vatGroup: null, priceIncludesVat: null, discountable: true, serviceCharge: true, soldOutUntil: null, sort: 0,
   variants: [], components: [], groups: [], optionOverrides: [], ...x,
 })

@@ -11,6 +11,8 @@ export function ItemEditor(props: {
   menu: Menu
   value: MenuItem
   onSave: (item: MenuItem) => Promise<void>
+  /** Stores the shrunk photo, returns its URL; the dish keeps it on Lưu món. */
+  onUploadImage: (itemId: string, image: Blob) => Promise<string>
   onDelete: (id: string) => Promise<void>
   /** Xoá vĩnh viễn (admin.delete): any dish, also one already sold. */
   onPurge?: (id: string) => Promise<void>
@@ -21,6 +23,7 @@ export function ItemEditor(props: {
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
+  const [photoMsg, setPhotoMsg] = useState<string | null>(null)
   const all = validateItem(menu, it)
   const e = tried ? all : {}
   const isNew = !menu.items.some(x => x.id === it.id)
@@ -60,6 +63,17 @@ export function ItemEditor(props: {
       setSaved('Chưa lưu được: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return
+    setPhotoMsg('Đang tải ảnh…')
+    try {
+      set({ imageUrl: await props.onUploadImage(it.id, await shrinkImage(file)) })
+      setPhotoMsg('Đã tải ảnh, bấm Lưu món để giữ')
+    } catch (err) {
+      setPhotoMsg('Chưa tải được ảnh: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 
@@ -115,6 +129,17 @@ export function ItemEditor(props: {
           </Field>
           <Field label="Mô tả cho nhân viên" wide>
             <textarea rows={2} value={it.description} onChange={x => set({ description: x.target.value })} placeholder="Gồm 1 miếng steak, 1 trứng ốp la, 1 đĩa salad" />
+          </Field>
+          <Field label="Ảnh món (hiện trên màn hình gọi món)" hint={photoMsg ?? 'Ảnh tự thu nhỏ trước khi tải lên'} wide>
+            <span className="photo-row">
+              {it.imageUrl ? <img className="photo-preview" src={it.imageUrl} alt="" /> : <span className="photo-preview photo-empty">Chưa có ảnh</span>}
+              <input type="file" accept="image/*" onChange={x => (pickPhoto(x.target.files?.[0]), (x.target.value = ''))} />
+              {it.imageUrl && (
+                <button type="button" className="btn" onClick={() => (set({ imageUrl: null }), setPhotoMsg('Đã bỏ ảnh, bấm Lưu món để giữ'))}>
+                  Bỏ ảnh
+                </button>
+              )}
+            </span>
           </Field>
           <Field label="Từ khoá tìm thêm (cách nhau bằng dấu phẩy)" wide>
             <input value={it.keywords.join(', ')} onChange={x => set({ keywords: x.target.value.split(',').map(k => k.trimStart()).filter((k, i, a) => k || i === a.length - 1) })} placeholder="bít tết" />
@@ -270,4 +295,25 @@ export function ItemEditor(props: {
       </div>
     </div>
   )
+}
+
+/** Fits the photo in 320×320 on white and re-encodes it as webp (about 10 KB), so tiles load fast on the floor wifi. */
+async function shrinkImage(file: File): Promise<Blob> {
+  const bmp = await createImageBitmap(file)
+  const SIZE = 320
+  const k = Math.min(SIZE / bmp.width, SIZE / bmp.height, 1)
+  const w = Math.round(bmp.width * k)
+  const h = Math.round(bmp.height * k)
+  const canvas = document.createElement('canvas')
+  canvas.width = SIZE
+  canvas.height = SIZE
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Máy không xử lý được ảnh')
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, SIZE, SIZE)
+  ctx.drawImage(bmp, (SIZE - w) / 2, (SIZE - h) / 2, w, h)
+  bmp.close()
+  const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/webp', 0.82))
+  if (!blob) throw new Error('Máy không xử lý được ảnh')
+  return blob
 }
