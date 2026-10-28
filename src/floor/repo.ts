@@ -62,6 +62,16 @@ export interface FloorRepo {
   saveReceipt(p: ReceiptSettings): Promise<void>
   /** Xoá vĩnh viễn (admin.delete, admin_delete in 0010). A bill is deleted with its order. */
   adminDelete(kind: E.FloorDeleteKind, id: string): Promise<void>
+  /** Khách gọi món qua QR, Nhận: the lines go to the kitchen on the table's order (opened if free); resolves with the order id. */
+  acceptGuest(requestId: string): Promise<string>
+  /** Từ chối, with the reason the guest sees. */
+  rejectGuest(requestId: string, reason: string): Promise<void>
+  /** Mã QR: a token for every table without one (null), or a new token for one table (Đổi mã). */
+  tableQrTokens(tableId: string | null): Promise<void>
+  /** Cho khách tự gọi món qua QR (settings.edit). */
+  setGuestOrder(on: boolean): Promise<void>
+  /** Sample only: a guest's request from the QR page of another tab (the database takes it through guest_place_order). */
+  placeGuestOrder?(token: string, inp: E.GuestOrderInput): Promise<void>
   /** Sample only: back to the sample evening. */
   reset?(): Promise<void>
   /** Supabase only: the signed-in staff member (role decides what the screens offer). */
@@ -218,6 +228,11 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
       await run((s, c) => E.adminDelete(s, kind, id, c))
       if (kind === 'order') deleted.add(id)
     },
+    acceptGuest: id => runId((s, c) => E.acceptGuestRequest(s, id, c)),
+    rejectGuest: (id, reason) => run((s, c) => E.rejectGuestRequest(s, id, reason, c)),
+    tableQrTokens: id => run((s, c) => E.tableQrTokens(s, id, c)),
+    setGuestOrder: on => run((s, c) => E.setGuestOrder(s, on, c)),
+    placeGuestOrder: (token, inp) => run((s, c) => E.placeGuestOrder(s, token, inp, c.menu, c.now)),
     async reset() {
       commit(structuredClone(sync?.reset?.() ?? opts.initial ?? seedFloor()))
     },

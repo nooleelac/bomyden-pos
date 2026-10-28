@@ -3,6 +3,7 @@
 // #/cai-dat/thanh-toan: payment methods, bank account, VAT (PaymentSettings).
 // #/cai-dat/may-in: this device's receipt printer (PrintSettings).
 // #/cai-dat/mau-in: the shop's receipt words and sizes (ReceiptTemplateSettings).
+// #/cai-dat/ma-qr: QR stickers per table for khách tự gọi món (GuestQrSettings).
 // #/cai-dat/chi-nhanh: the owner's branches; #/cai-dat/gio-lam: this branch's opening hours (BranchSettings).
 
 import { useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
@@ -16,6 +17,7 @@ import '../menu/menu.css'
 import '../floor/floor.css'
 import '../auth/auth.css'
 import { BranchesPage, OpeningHoursPage } from './BranchSettings'
+import { GuestQrSettings } from './GuestQrSettings'
 import { PaymentSettings } from './PaymentSettings'
 import { PrintSettingsPage } from './PrintSettings'
 import { ReceiptTemplateSettings } from './ReceiptTemplateSettings'
@@ -31,6 +33,12 @@ export function SettingsApp() {
     return (
       <PaymentPage repo={repos.floor}>
         {(floor, onError, onInfo) => <ReceiptTemplateSettings floor={floor} repo={repos.floor} onError={onError} onInfo={onInfo} />}
+      </PaymentPage>
+    )
+  if (route[1] === 'ma-qr' && repos)
+    return (
+      <PaymentPage repo={repos.floor}>
+        {(floor, onError, onInfo) => <GuestQrSettings floor={floor} repo={repos.floor} onError={onError} onInfo={onInfo} />}
       </PaymentPage>
     )
   if (route[1] === 'chi-nhanh') return <ToastPage>{(onError, onInfo) => <BranchesPage onError={onError} onInfo={onInfo} />}</ToastPage>

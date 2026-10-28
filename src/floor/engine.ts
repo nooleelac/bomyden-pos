@@ -14,7 +14,7 @@ import { TEXT_MAX, receiptTemplate } from '../cashier/template'
 import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
   NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type BankAccount, type Bill, type FloorSettings, type FloorState, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
+  type Actor, type Area, type BankAccount, type Bill, type FloorSettings, type FloorState, type GuestRequest, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -208,7 +208,8 @@ export function closeEmptyOrder(s: FloorState, id: string, c: Ctx): FloorState {
 
 // ---------------------------------------------------------------- Gửi bếp
 
-function toPicker(l: SendLineInput): PickerState {
+/** A sent line back in picker form (SỬA, and describing what a guest asked for). */
+export function toPicker(l: SendLineInput): PickerState {
   return {
     itemId: l.menu_item_id,
     variantId: l.variant_id ?? null,
@@ -1047,4 +1048,99 @@ export function saveReceipt(s: FloorState, p: ReceiptSettings, c: Ctx): FloorSta
   need(c, 'settings.edit')
   const { template, ...head } = checkReceiptSettings(p)
   return { ...s, shop: { ...s.shop, ...head, receiptTemplate: template } }
+}
+
+// ---------------------------------------------------------------- khách gọi món qua QR (0023)
+
+export interface GuestOrderInput {
+  /** Picked by the guest's phone: sending it again changes nothing. */
+  id: string
+  lines: SendLineInput[]
+  note?: string
+  guestCount?: number | null
+}
+
+const guestList = (s: FloorState) => s.guestRequests ?? []
+
+/** The table behind a QR token (sample: the token or the table id), or the guest-facing reason it cannot order. */
+export function guestTable(s: FloorState, token: string): Table {
+  const t = s.tables.find(x => (x.qrToken ? x.qrToken === token : s.sample && x.id === token))
+  if (!t || !t.active) fail('Mã QR này không còn dùng được, mời bạn gọi nhân viên')
+  if (s.settings.guestOrder === false) fail('Quán đang tắt gọi món qua mã QR, mời bạn gọi nhân viên')
+  return t
+}
+
+/** A guest's request from the table's QR page (guest_place_order): checked for shape and limits, priced on Nhận. */
+export function placeGuestOrder(s: FloorState, token: string, inp: GuestOrderInput, menu: Menu, now: Date): FloorState {
+  const t = guestTable(s, token)
+  const prior = guestList(s).find(r => r.id === inp.id)
+  if (prior) return prior.tableId === t.id ? s : fail('Mã yêu cầu đã dùng')
+  if (!inp.lines.length) fail('Chưa chọn món nào')
+  if (inp.lines.length > 30) fail('Một lần gọi tối đa 30 dòng món')
+  let n = 0
+  for (const l of inp.lines) {
+    if (!menu.items.some(i => i.id === l.menu_item_id && i.status === 'active')) fail('Có món không còn trên thực đơn, mời bạn tải lại trang')
+    if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 20) fail('Mỗi món từ 1 đến 20 phần')
+    if ((l.note ?? '').length > NOTE_MAX) fail(`Ghi chú món tối đa ${NOTE_MAX} ký tự`)
+    n += l.qty
+  }
+  if (n > 60) fail('Một lần gọi tối đa 60 phần')
+  const note = (inp.note ?? '').trim()
+  checkNote(note)
+  if (inp.guestCount != null) checkGuests(inp.guestCount)
+  const mine = guestList(s).filter(r => r.tableId === t.id)
+  if (mine.filter(r => r.status === 'pending').length >= 5) fail('Bàn đang có nhiều yêu cầu chờ, nhân viên sẽ tới ngay')
+  if (mine.filter(r => now.getTime() - new Date(r.createdAt).getTime() < 3600_000).length >= 12) fail('Bàn đã gửi nhiều yêu cầu, mời bạn gọi nhân viên')
+  const r: GuestRequest = {
+    id: inp.id, tableId: t.id, lines: inp.lines, note, guestCount: inp.guestCount ?? null, status: 'pending', reason: '',
+    createdAt: now.toISOString(), decidedAt: null, decidedBy: '', orderId: null,
+  }
+  return { ...s, guestRequests: [...guestList(s), r] }
+}
+
+function pendingGuest(s: FloorState, id: string): GuestRequest {
+  const r = guestList(s).find(x => x.id === id) ?? fail('Không tìm thấy yêu cầu của khách')
+  if (r.status === 'rejected') fail('Yêu cầu này đã bị từ chối')
+  return r
+}
+
+/**
+ * Nhận (accept_guest_request): open the table if it is free, send the lines on its first open order as one round.
+ * The request id is the send batch, so accepting twice sends once.
+ */
+export function acceptGuestRequest(s: FloorState, id: string, c: Ctx): { state: FloorState; orderId: string } {
+  floorStaff(c)
+  const r = pendingGuest(s, id)
+  if (r.status === 'accepted' && r.orderId) return { state: s, orderId: r.orderId }
+  const t = getTable(s, r.tableId)
+  const opened = openTable(s, { tableId: t.id, guestCount: r.guestCount ?? Math.min(99, Math.max(1, t.seats || 1)), id: c.newId() }, c)
+  let state = opened.state
+  const o = getOrder(state, opened.orderId)
+  if (r.note && !o.note) state = patchOrder(state, o.id, { note: r.note.slice(0, NOTE_MAX) })
+  state = sendLines(state, o.id, r.lines, r.id, {}, c).state
+  const decided = { status: 'accepted' as const, decidedAt: iso(c), decidedBy: c.actor.name, orderId: o.id }
+  return { state: { ...state, guestRequests: guestList(state).map(x => (x.id === id ? { ...x, ...decided } : x)) }, orderId: o.id }
+}
+
+export function rejectGuestRequest(s: FloorState, id: string, reason: string, c: Ctx): FloorState {
+  floorStaff(c)
+  const r = pendingGuest(s, id)
+  if (r.status !== 'pending') fail('Yêu cầu này đã được xử lý')
+  const why = reason.trim().slice(0, 80)
+  return { ...s, guestRequests: guestList(s).map(x => (x.id === id ? { ...x, status: 'rejected', reason: why, decidedAt: iso(c), decidedBy: c.actor.name } : x)) }
+}
+
+/** 32 random hex characters, like replace(gen_random_uuid()::text, '-', '') in 0023. */
+const qrToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('')
+
+/** Mã QR (table_qr_tokens): a token for every table without one, or a new one for one table (Đổi mã). */
+export function tableQrTokens(s: FloorState, tableId: string | null, c: Ctx): FloorState {
+  managerOnly(c)
+  if (tableId && !s.tables.some(t => t.id === tableId)) fail('Không tìm thấy bàn')
+  return { ...s, tables: s.tables.map(t => ((tableId ? t.id === tableId : !t.qrToken) ? { ...t, qrToken: qrToken() } : t)) }
+}
+
+export function setGuestOrder(s: FloorState, on: boolean, c: Ctx): FloorState {
+  need(c, 'settings.edit')
+  return { ...s, settings: { ...s.settings, guestOrder: on } }
 }

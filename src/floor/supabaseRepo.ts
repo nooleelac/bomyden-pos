@@ -13,7 +13,7 @@ import { newId } from '../menu/repo'
 import { liveTables } from '../lib/live'
 import * as E from './engine'
 import type { FloorRepo } from './repo'
-import type { Actor, BankAccount, Bill, FloorState, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
+import type { Actor, BankAccount, Bill, FloorState, GuestRequest, GuestRequestStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
 
 type Row = Record<string, unknown>
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>
@@ -138,12 +138,14 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         waiterSeesAmounts: sh.waiter_sees_amounts === true,
         businessDayStart: s(sh.business_day_start || '06:00').slice(0, 5),
         voidApproval: sh.void_approval === 'started' ? 'started' : 'sent',
+        // 0023: missing column (not migrated yet) reads as on; the QR page itself says when the server is not ready
+        guestOrder: sh.guest_order !== false,
         timing: Object.fromEntries(stations.map(st => [s(st.id), { warn: n(st.sla_warn_min), late: n(st.sla_late_min) }])),
       },
       areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false })),
       tables: tables.map(t => ({
         id: s(t.id), areaId: s(t.area_id), name: s(t.name), seats: n(t.seats ?? 4), sort: n(t.sort), active: t.active !== false,
-        temporary: t.is_temporary === true,
+        temporary: t.is_temporary === true, qrToken: sn(t.qr_token),
       })),
       orders: orders.map(toOrder),
       lines: items.map(toLine),
@@ -167,6 +169,11 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         receiptTemplate: sh.receipt_template ?? undefined,
       },
       clockOffset,
+      guestRequests: list('guest_requests').map((r): GuestRequest => ({
+        id: s(r.id), tableId: s(r.table_id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), guestCount: nn(r.guest_count),
+        status: r.status as GuestRequestStatus, reason: s(r.reason), createdAt: s(r.created_at), decidedAt: sn(r.decided_at),
+        decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
+      })),
     }
     if (no === loadNo) cache = out
     return out
@@ -214,7 +221,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       return r[0] ? { name: s(r[0].name), role: r[0].role as Role } : null
     },
     subscribe(onChange) {
-      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings']
+      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings', 'guest_requests']
       const off = liveTables(db, 'floor-changes', tables, () => onChange(), 15_000)
       listeners.add(onChange)
       return () => {
@@ -341,6 +348,10 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         )
       }),
     adminDelete: (kind, id) => call('admin_delete', { p_kind: kind, p_id: id }),
+    acceptGuest: id => act(() => rpc<string>(db, 'accept_guest_request', { p_id: id })).then(s),
+    rejectGuest: (id, reason) => call('reject_guest_request', { p_id: id, p_reason: reason }, (st, c) => E.rejectGuestRequest(st, id, reason, c)),
+    tableQrTokens: id => call('table_qr_tokens', { p_table: id }),
+    setGuestOrder: on => call('set_guest_order', { p_on: on }, (st, c) => E.setGuestOrder(st, on, c)),
     saveTable: t =>
       act(async () => {
         const row = { id: t.id, area_id: t.areaId, name: t.name.trim(), seats: t.seats, sort: t.sort, active: t.active, is_temporary: t.temporary }

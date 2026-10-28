@@ -30,7 +30,7 @@ const n = (v: unknown) => Number(v)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const sn = (v: unknown) => (v == null ? null : String(v))
 
-const MENU_KEYS = ['shop', 'stations', 'vat_groups', 'vat_rates', 'categories', 'items', 'variants', 'components', 'groups', 'options', 'links', 'overrides'] as const
+export const MENU_KEYS = ['shop', 'stations', 'vat_groups', 'vat_rates', 'categories', 'items', 'variants', 'components', 'groups', 'options', 'links', 'overrides'] as const
 
 export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
   // one round trip (get_menu_state, 0016); a database without it yet answers with the 12 table reads
@@ -59,52 +59,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     ])
   }
 
-  async function load(): Promise<Menu> {
-    const [shop, stations, vatGroups, vatRates, cats, items, variants, comps, groups, options, links, overrides] = await loadRows()
-    const rateOf = (code: string) => n(vatRates.filter(r => r.vat_group === code).pop()?.rate ?? 0)
-    return {
-      settings: {
-        pricesIncludeVat: shop[0]?.prices_include_vat !== false,
-        businessDayStart: s(shop[0]?.business_day_start || '06:00').slice(0, 5),
-        minPriceRatio: shop[0]?.min_price_ratio == null ? 0.5 : n(shop[0].min_price_ratio),
-      },
-      stations: stations.map(r => ({
-        id: s(r.id), code: s(r.code), name: s(r.name), kind: r.kind as Station['kind'], sort: n(r.sort),
-        warnMin: n(r.sla_warn_min ?? 10), lateMin: n(r.sla_late_min ?? 15),
-      })),
-      vatGroups: vatGroups.map(r => ({ code: s(r.code), name: s(r.name), rate: rateOf(s(r.code)) })),
-      categories: cats.map(r => ({
-        id: s(r.id), parentId: sn(r.parent_id), name: s(r.name), sort: n(r.sort), color: s(r.color), visible: r.visible !== false,
-        defaultStationId: sn(r.default_station_id), vatGroup: s(r.vat_group),
-      })),
-      groups: groups.map(g => ({
-        id: s(g.id), name: s(g.name), kind: g.kind as ModifierGroup['kind'], minSelect: n(g.min_select), maxSelect: nn(g.max_select),
-        printReceipt: g.print_receipt as ModifierGroup['printReceipt'], stationId: sn(g.station_id), sort: n(g.sort),
-        options: options.filter(o => o.group_id === g.id).map(o => ({
-          id: s(o.id), groupId: s(o.group_id), name: s(o.name), kitchenName: s(o.kitchen_name), priceDelta: n(o.price_delta),
-          maxQty: n(o.max_qty), isDefault: o.is_default === true, sort: n(o.sort), soldOutUntil: sn(o.sold_out_until),
-        })),
-      })),
-      items: items.map(r => ({
-        id: s(r.id), categoryId: s(r.category_id), name: s(r.name), shortName: s(r.short_name), code: s(r.code), unit: s(r.unit),
-        stationId: sn(r.station_id), prepMinutes: nn(r.prep_minutes), status: r.status as MenuItem['status'],
-        description: s(r.description), keywords: (r.keywords as string[] | null) ?? [], imageUrl: sn(r.image_url), price: n(r.price), hasSizes: r.has_sizes === true,
-        vatGroup: sn(r.vat_group), priceIncludesVat: r.price_includes_vat == null ? null : r.price_includes_vat === true,
-        discountable: r.discountable !== false, serviceCharge: r.service_charge !== false, soldOutUntil: sn(r.sold_out_until), sort: n(r.sort),
-        variants: variants.filter(v => v.item_id === r.id).map(v => ({
-          id: s(v.id), name: s(v.name), code: s(v.code), price: n(v.price), sort: n(v.sort), soldOutUntil: sn(v.sold_out_until), archivedAt: sn(v.archived_at),
-        })),
-        components: comps.filter(c => c.item_id === r.id).map(c => ({
-          id: s(c.id), name: s(c.name), kitchenName: s(c.kitchen_name), qty: n(c.qty), unit: s(c.unit), removable: c.removable === true,
-          removalDiscount: n(c.removal_discount), addonOptionId: sn(c.addon_option_id), stationId: sn(c.station_id), sort: n(c.sort), soldOutUntil: sn(c.sold_out_until),
-        })),
-        groups: links.filter(l => l.item_id === r.id).map(l => ({
-          groupId: s(l.group_id), sort: n(l.sort), minOverride: nn(l.min_override), maxOverride: nn(l.max_override),
-        })),
-        optionOverrides: overrides.filter(o => o.item_id === r.id).map(o => ({ optionId: s(o.option_id), priceDelta: nn(o.price_delta), hidden: o.hidden === true })),
-      })),
-    }
-  }
+  const load = async (): Promise<Menu> => menuFromRows(await loadRows())
 
   const categoryRow = (c: Category) => ({
     id: c.id, parent_id: c.parentId, name: c.name.trim(), sort: c.sort, color: c.color, visible: c.visible,
@@ -216,5 +171,53 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
       if (error) throw new Error(error.message)
       return (data as string | null) ?? null
     },
+  }
+}
+
+/** The menu from get_menu_state rows (or guest_menu, 0023), in MENU_KEYS order. */
+export function menuFromRows(rowsIn: Row[][]): Menu {
+  const [shop, stations, vatGroups, vatRates, cats, items, variants, comps, groups, options, links, overrides] = rowsIn
+  const rateOf = (code: string) => n(vatRates.filter(r => r.vat_group === code).pop()?.rate ?? 0)
+  return {
+    settings: {
+      pricesIncludeVat: shop[0]?.prices_include_vat !== false,
+      businessDayStart: s(shop[0]?.business_day_start || '06:00').slice(0, 5),
+      minPriceRatio: shop[0]?.min_price_ratio == null ? 0.5 : n(shop[0].min_price_ratio),
+    },
+    stations: stations.map(r => ({
+      id: s(r.id), code: s(r.code), name: s(r.name), kind: r.kind as Station['kind'], sort: n(r.sort),
+      warnMin: n(r.sla_warn_min ?? 10), lateMin: n(r.sla_late_min ?? 15),
+    })),
+    vatGroups: vatGroups.map(r => ({ code: s(r.code), name: s(r.name), rate: rateOf(s(r.code)) })),
+    categories: cats.map(r => ({
+      id: s(r.id), parentId: sn(r.parent_id), name: s(r.name), sort: n(r.sort), color: s(r.color), visible: r.visible !== false,
+      defaultStationId: sn(r.default_station_id), vatGroup: s(r.vat_group),
+    })),
+    groups: groups.map(g => ({
+      id: s(g.id), name: s(g.name), kind: g.kind as ModifierGroup['kind'], minSelect: n(g.min_select), maxSelect: nn(g.max_select),
+      printReceipt: g.print_receipt as ModifierGroup['printReceipt'], stationId: sn(g.station_id), sort: n(g.sort),
+      options: options.filter(o => o.group_id === g.id).map(o => ({
+        id: s(o.id), groupId: s(o.group_id), name: s(o.name), kitchenName: s(o.kitchen_name), priceDelta: n(o.price_delta),
+        maxQty: n(o.max_qty), isDefault: o.is_default === true, sort: n(o.sort), soldOutUntil: sn(o.sold_out_until),
+      })),
+    })),
+    items: items.map(r => ({
+      id: s(r.id), categoryId: s(r.category_id), name: s(r.name), shortName: s(r.short_name), code: s(r.code), unit: s(r.unit),
+      stationId: sn(r.station_id), prepMinutes: nn(r.prep_minutes), status: r.status as MenuItem['status'],
+      description: s(r.description), keywords: (r.keywords as string[] | null) ?? [], imageUrl: sn(r.image_url), price: n(r.price), hasSizes: r.has_sizes === true,
+      vatGroup: sn(r.vat_group), priceIncludesVat: r.price_includes_vat == null ? null : r.price_includes_vat === true,
+      discountable: r.discountable !== false, serviceCharge: r.service_charge !== false, soldOutUntil: sn(r.sold_out_until), sort: n(r.sort),
+      variants: variants.filter(v => v.item_id === r.id).map(v => ({
+        id: s(v.id), name: s(v.name), code: s(v.code), price: n(v.price), sort: n(v.sort), soldOutUntil: sn(v.sold_out_until), archivedAt: sn(v.archived_at),
+      })),
+      components: comps.filter(c => c.item_id === r.id).map(c => ({
+        id: s(c.id), name: s(c.name), kitchenName: s(c.kitchen_name), qty: n(c.qty), unit: s(c.unit), removable: c.removable === true,
+        removalDiscount: n(c.removal_discount), addonOptionId: sn(c.addon_option_id), stationId: sn(c.station_id), sort: n(c.sort), soldOutUntil: sn(c.sold_out_until),
+      })),
+      groups: links.filter(l => l.item_id === r.id).map(l => ({
+        groupId: s(l.group_id), sort: n(l.sort), minOverride: nn(l.min_override), maxOverride: nn(l.max_override),
+      })),
+      optionOverrides: overrides.filter(o => o.item_id === r.id).map(o => ({ optionId: s(o.option_id), priceDelta: nn(o.price_delta), hidden: o.hidden === true })),
+    })),
   }
 }

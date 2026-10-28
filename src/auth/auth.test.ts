@@ -41,11 +41,12 @@ describe('route guards by role', () => {
     for (const r of ['manager', 'owner'] as Role[]) expect(allowed(r)).toEqual(Object.keys(routes))
     expect(menuTabsFor('owner')).toContain('items')
     expect(navFor('manager').map(l => l.label)).toEqual(['Đơn', 'Bàn', 'Bếp', 'Thu ngân'])
-    expect(settingsFor('manager').map(l => l.label)).toEqual(['Ca', 'Thực đơn', 'Bàn', 'Thanh toán', 'Máy in', 'Mẫu in', 'Giờ làm việc', 'Nhân viên'])
+    expect(settingsFor('manager').map(l => l.label)).toEqual(['Ca', 'Thực đơn', 'Bàn', 'Mã QR gọi món', 'Thanh toán', 'Máy in', 'Mẫu in', 'Giờ làm việc', 'Nhân viên'])
     // Chi nhánh is the owner's, whatever the permission table says
     expect(settingsFor('owner').map(l => l.label)).toContain('Chi nhánh')
     expect(canOpen('manager', ['cai-dat', 'chi-nhanh'])).toBe(false)
     expect(screenOf(['cai-dat', 'gio-lam'])).toBe('opening-hours')
+    expect(screenOf(['cai-dat', 'ma-qr'])).toBe('guest-qr')
     expect(navFor('waiter').map(l => l.label)).toEqual(['Đơn', 'Bàn'])
     expect(settingsFor('waiter').map(l => l.label)).toEqual(['Hết món'])
     expect(settingsFor('cashier').map(l => l.label)).toEqual(['Ca', 'Hết món', 'Bàn', 'Máy in'])

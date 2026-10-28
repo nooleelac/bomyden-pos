@@ -7,7 +7,7 @@ import { useRef, useState } from 'react'
 import { vnd } from '../../menu/picker'
 import { newId } from '../../menu/repo'
 import { go, markQuickOpened, readRoute, takeQuickOpened } from '../hooks'
-import { areaTables, formatDuration, shortMinutes, openOrdersAt, orderAmount, orderLabel, orderProgress, orderTitle, PROGRESS_LABEL, tableTile, type TableTile } from '../logic'
+import { areaTables, formatDuration, pendingGuests, shortMinutes, openOrdersAt, orderAmount, orderLabel, orderProgress, orderTitle, PROGRESS_LABEL, tableTile, type TableTile } from '../logic'
 import type { FloorRepo } from '../repo'
 import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableState } from '../types'
 import { GuestPicker, Sheet } from './Sheet'
@@ -92,6 +92,8 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
     }
   }
   const openOrders = floor.orders.filter(o => o.status === 'open').length
+  const guests = pendingGuests(floor)
+  const guestTables = new Set(guests.map(r => r.tableId))
   const showTakeaway = areaId === TAKEAWAY
   const since = (iso: string) => formatDuration(now.getTime() - new Date(iso).getTime())
   const tileSub = (t: TableTile) =>
@@ -112,6 +114,11 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
           Bàn trống: <b>{count(allTiles, 'free')}</b>/{allTiles.length}
         </span>
       </p>
+      {guests.length > 0 && (
+        <a className="guest-alert" href="#/ban/khach">
+          🙋 {guests.length} yêu cầu gọi món từ khách ({[...guestTables].map(id => floor.tables.find(t => t.id === id)?.name ?? '?').join(', ')}): xem và xác nhận ›
+        </a>
+      )}
       <div className="floor-body">
         <nav className="area-rail" aria-label="Khu vực">
           <button type="button" className={'rail-item' + (showAll ? ' is-on' : '')} onClick={() => pickArea(ALL)}>
@@ -180,6 +187,11 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
                         }}
                       >
                         <b className="tile-name">{t.table.name}</b>
+                        {guestTables.has(t.table.id) && (
+                          <span className="tile-guest" title="Khách gọi món qua QR">
+                            🙋
+                          </span>
+                        )}
                         <span className="tile-sub">{tileSub(t)}</span>
                         {t.amount > 0 && <span className="tile-amount">{vnd(t.amount)}</span>}
                         {t.progress && <span className={`progress-tag pg-${t.progress}`}>{PROGRESS_LABEL[t.progress]}</span>}

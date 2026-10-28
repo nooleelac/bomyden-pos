@@ -2,10 +2,10 @@
 // first, built from the live floor state, so every device shows the same list without a separate table.
 
 import { vnd } from '../menu/picker'
-import { orderTitle, tableTitle } from './logic'
+import { orderTitle, tableName, tableTitle } from './logic'
 import type { FloorState } from './types'
 
-export type EventKind = 'open' | 'send' | 'ready' | 'void' | 'chase' | 'bill' | 'paid'
+export type EventKind = 'open' | 'send' | 'ready' | 'void' | 'chase' | 'bill' | 'paid' | 'guest'
 
 export interface FloorEvent {
   id: string
@@ -18,7 +18,7 @@ export interface FloorEvent {
   href: string
 }
 
-export const EVENT_ICON: Record<EventKind, string> = { open: '🍽️', send: '🧾', ready: '✅', void: '❌', chase: '⏰', bill: '🧮', paid: '💵' }
+export const EVENT_ICON: Record<EventKind, string> = { open: '🍽️', send: '🧾', ready: '✅', void: '❌', chase: '⏰', bill: '🧮', paid: '💵', guest: '🙋' }
 
 /** Events of the last `hours` hours, newest first, at most `max`. */
 export function floorEvents(s: FloorState, now: Date, hours = 12, max = 60): FloorEvent[] {
@@ -68,6 +68,14 @@ export function floorEvents(s: FloorState, now: Date, hours = 12, max = 60): Flo
   }
   for (const b of s.bills) {
     if (recent(b.paidAt)) ev.push({ id: `paid-${b.id}`, kind: 'paid', at: b.paidAt, by: b.cashier, text: `thu ${vnd(b.total)} ${tableTitle(b.tableLabel)} (${b.billNo})`, href: `#/thu-ngan/hd/${b.id}` })
+  }
+
+  // khách gọi món qua QR: only the ones still waiting (Nhận turns into a Gửi bếp)
+  for (const r of s.guestRequests ?? []) {
+    if (r.status === 'pending' && recent(r.createdAt)) {
+      const qty = r.lines.reduce((n, l) => n + l.qty, 0)
+      ev.push({ id: `guest-${r.id}`, kind: 'guest', at: r.createdAt, by: '', text: `khách ${tableTitle(tableName(s, r.tableId))} gọi ${qty} món qua QR: chờ xác nhận`, href: '#/ban/khach' })
+    }
   }
 
   return ev.sort((a, b) => b.at.localeCompare(a.at)).slice(0, max)

@@ -6,6 +6,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { useAuth } from './auth/context'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './auth/memoryRepo'
 import type { AuthRepo } from './auth/repo'
+import type { GuestRepo } from './guest/repo'
 import { staffFetch } from './auth/token'
 import { FloorApp } from './floor/FloorApp'
 import { peekSource, ReposContext, session, useRoute } from './floor/hooks'
@@ -37,6 +38,7 @@ const ReportsApp = lazy(() => import('./reports/ReportsApp').then(m => ({ defaul
 const CashierApp = lazy(() => import('./cashier/CashierApp').then(m => ({ default: m.CashierApp })))
 const MenuApp = lazy(() => import('./menu/MenuApp').then(m => ({ default: m.MenuApp })))
 const SettingsApp = lazy(() => import('./settings/SettingsApp').then(m => ({ default: m.SettingsApp })))
+const GuestApp = lazy(() => import('./guest/GuestApp').then(m => ({ default: m.GuestApp })))
 
 interface Repos {
   menu: MenuRepo
@@ -75,6 +77,33 @@ function sampleFloorRepo(menu: MenuRepo, auth: MemoryAuthRepo | null): FloorRepo
   })
 }
 
+// Khách quét mã QR (#/goi/<token>): no device, no PIN. The database answers the anon RPCs of 0023 only; sample data
+// goes into this browser's sample floor, so a waiter tab sees the request.
+async function connectGuest(): Promise<GuestRepo> {
+  const { createMemoryGuestRepo, createSupabaseGuestRepo } = await import('./guest/repo')
+  if (floorFromDb) {
+    const { createClient } = await import('@supabase/supabase-js')
+    return createSupabaseGuestRepo(createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } }))
+  }
+  const menu = createMemoryMenuRepo()
+  return createMemoryGuestRepo(sampleFloorRepo(menu, null), menu)
+}
+
+function Guest(props: { token: string }) {
+  const [repo, setRepo] = useState<GuestRepo | null>(null)
+  useEffect(() => {
+    connectGuest().then(setRepo)
+  }, [])
+  if (!repo) return <p style={{ padding: 16 }}>Đang mở thực đơn…</p>
+  return (
+    <Suspense fallback={<p style={{ padding: 16 }}>Đang mở thực đơn…</p>}>
+      <ErrorBoundary>
+        <GuestApp repo={repo} token={props.token} />
+      </ErrorBoundary>
+    </Suspense>
+  )
+}
+
 function Screens(props: { repos: Repos }) {
   const { repos } = props
   const route = useRoute()
@@ -90,6 +119,11 @@ function Screens(props: { repos: Repos }) {
 }
 
 function App() {
+  const route = useRoute()
+  return route[0] === 'goi' ? <Guest token={route[1] ?? ''} /> : <StaffSide />
+}
+
+function StaffSide() {
   const [repos, setRepos] = useState<Repos | null>(null)
   useEffect(() => {
     connect().then(setRepos)

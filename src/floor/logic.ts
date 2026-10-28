@@ -3,7 +3,7 @@
 // The same labels come from order_table_label / order_group_label in SQL (0002).
 
 import type { Menu } from '../menu/types'
-import type { FloorState, Line, LineStatus, Notice, Order, StationTiming, Table, TableState } from './types'
+import type { FloorState, GuestRequest, Line, LineStatus, Notice, Order, StationTiming, Table, TableState } from './types'
 
 // ---------------------------------------------------------------- labels
 
@@ -405,3 +405,7 @@ export function minutesText(ms: number): string {
 export function shortMinutes(ms: number): string {
   return ms < 3600_000 ? minutesText(ms) : formatDuration(ms)
 }
+
+/** Requests still waiting, oldest first. */
+export const pendingGuests = (s: FloorState): GuestRequest[] =>
+  (s.guestRequests ?? []).filter(r => r.status === 'pending').sort((a, b) => a.createdAt.localeCompare(b.createdAt))

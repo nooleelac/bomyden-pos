@@ -23,6 +23,8 @@ export interface Table {
   active: boolean
   /** Bàn tạm (kê thêm) */
   temporary: boolean
+  /** Secret of the table's QR link #/goi/<token> (0023); null/missing = no QR yet. */
+  qrToken?: string | null
 }
 
 export type OrderStatus = 'open' | 'paid' | 'void' | 'merged'
@@ -206,6 +208,8 @@ export interface FloorSettings {
   businessDayStart: string
   /** Huỷ món needs a manager for every sent line ('sent', default) or only once the kitchen started it ('started'). */
   voidApproval?: 'sent' | 'started'
+  /** Khách quét QR tự gọi món (0023 branch_settings.guest_order); missing = on. */
+  guestOrder?: boolean
 }
 
 export interface FloorState {
@@ -225,6 +229,29 @@ export interface FloorState {
   shop: ShopProfile
   /** Server time minus device time, ms (timers use shop time). */
   clockOffset?: number
+  /** Khách gọi món qua QR: the waiting ones and those decided in the last hours (0023); missing = none. */
+  guestRequests?: GuestRequest[]
+}
+
+export type GuestRequestStatus = 'pending' | 'accepted' | 'rejected'
+
+/** What a guest sent from the table's QR page. Nothing reaches the kitchen until a waiter accepts it. */
+export interface GuestRequest {
+  id: string
+  tableId: string
+  /** send_order_lines form; priced when accepted. */
+  lines: SendLineInput[]
+  /** Becomes the order note when the order has none (≤ 60). */
+  note: string
+  guestCount: number | null
+  status: GuestRequestStatus
+  /** Why it was rejected, shown to the guest. */
+  reason: string
+  createdAt: string
+  decidedAt: string | null
+  decidedBy: string
+  /** The order it went onto. */
+  orderId: string | null
 }
 
 /** One line for send_order_lines (same shape as picker.ts SendLine, plus the delivery table). */

@@ -27,6 +27,8 @@ export function OrderScreen(props: {
   onReview?: () => void
   /** Tiếp theo instead of Gửi bếp: the screen around it shows the cart to check, and sends it from there. */
   onNext?: () => void
+  /** Search box hint (the guest QR page has no dish codes to offer). */
+  searchHint?: string
 }) {
   const { menu, now, onSend, storageKey, onCartChange } = props
   const [query, setQuery] = useState('')
@@ -94,7 +96,7 @@ export function OrderScreen(props: {
         <input
           type="search"
           value={query}
-          placeholder="🔍 Tìm món: gõ không dấu, chữ đầu (sbn) hoặc mã (101)"
+          placeholder={props.searchHint ?? '🔍 Tìm món: gõ không dấu, chữ đầu (sbn) hoặc mã (101)'}
           aria-label="Tìm món"
           onChange={e => setQuery(e.target.value)}
         />

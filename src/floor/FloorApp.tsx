@@ -1,7 +1,7 @@
 // Waiter / cashier shell: floor map, order screen, area setup (the "Chờ bưng" bar is hidden: Đã bưng is marked
-// on the order screen). Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat
+// on the order screen). Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat  #/ban/khach (khách gọi món qua QR)
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
 import { useAuth } from '../auth/context'
 import type { MenuRepo } from '../menu/repo'
@@ -9,8 +9,10 @@ import '../menu/menu.css'
 import './floor.css'
 import { errText, useLive, useNow, useOnline, useRoute } from './hooks'
 import type { FloorRepo } from './repo'
-import { unlockSound } from './sound'
+import { play, unlockSound } from './sound'
 import { FloorMap } from './screens/FloorMap'
+import { GuestRequests } from './screens/GuestRequests'
+import { pendingGuests } from './logic'
 import { OrdersPage } from './screens/OrdersPage'
 import { OrderView } from './screens/OrderView'
 import { SetupScreen } from './screens/SetupScreen'
@@ -40,8 +42,17 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
     return () => window.removeEventListener('pointerdown', f)
   }, [])
 
+  // a new request from a guest's phone rings on every floor device (not on the first load)
+  const heard = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!floor) return
+    const ids = pendingGuests(floor).map(r => r.id)
+    if (heard.current && ids.some(id => !heard.current!.has(id))) play('chase')
+    heard.current = new Set([...(heard.current ?? []), ...ids])
+  }, [floor])
+
   if (!floor || !menu) return <div className="menu-app loading">Đang tải sơ đồ bàn…</div>
-  const page = route[0] === 'don' ? 'orders' : route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : 'map'
+  const page = route[0] === 'don' ? 'orders' : route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : route[1] === 'khach' ? 'guests' : 'map'
 
   return (
     <div className="menu-app floor-app">
@@ -61,6 +72,7 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
       {page === 'orders' && <OrdersPage floor={floor} now={now} role={role} />}
       {page === 'map' && <FloorMap floor={floor} repo={floorRepo} now={now} role={role} me={me} online={online} onError={onError} />}
       {page === 'order' && <OrderView key={route[2]} floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} orderId={route[2]} onError={onError} onInfo={onInfo} />}
+      {page === 'guests' && <GuestRequests floor={floor} menu={menu} repo={floorRepo} now={now} onError={onError} onInfo={onInfo} />}
       {page === 'setup' && (
         <main>
           <SetupScreen floor={floor} repo={floorRepo} role={role} onError={onError} />
