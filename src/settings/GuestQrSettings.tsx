@@ -1,5 +1,5 @@
 // #/cai-dat/ma-qr: one QR sticker per table for khách tự gọi món (0023). Opening the page gives every table without a
-// token one (tables.edit); In tất cả prints A4 sheets of stickers; Đổi mã replaces one table's token, so a photo of
+// token one (tables.edit); tick tables (or whole areas) and print just those, or In tất cả, on A4 sheets of stickers; Đổi mã replaces one table's token, so a photo of
 // the old sticker stops working. settings.edit turns guest ordering on or off for the branch.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -82,6 +82,16 @@ export function GuestQrSettings(props: { floor: FloorState; repo: FloorRepo; onE
       .finally(() => setBusy(false))
   }
   const ready = tables.filter(t => t.qrToken)
+  // Chọn bàn để in: ticked tables, printed in floor order
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const chosen = ready.filter(t => picked.has(t.id))
+  const toggle = (ids: string[], on: boolean) =>
+    setPicked(prev => {
+      const next = new Set(prev)
+      for (const id of ids) if (on) next.add(id); else next.delete(id)
+      return next
+    })
+  const areas = [...floor.areas].sort((a, b) => a.sort - b.sort).map(a => ({ ...a, ids: ready.filter(t => t.areaId === a.id).map(t => t.id) })).filter(a => a.ids.length)
   const copy = (t: Table) =>
     navigator.clipboard?.writeText(guestLink(t.qrToken!)).then(() => props.onInfo(`Đã chép link bàn ${t.name}`), () => props.onError('Không chép được: giữ vào link để chép'))
 
@@ -103,17 +113,42 @@ export function GuestQrSettings(props: { floor: FloorState; repo: FloorRepo; onE
       <Section
         title={`Tem dán bàn (${ready.length}/${tables.length})`}
         aside={
-          <button type="button" className="btn btn-primary btn-small" disabled={!ready.length} onClick={() => printStickers(floor.shop.name, ready)}>
-            🖨 In tất cả
+          <button type="button" className="btn btn-primary btn-small" disabled={!ready.length} onClick={() => printStickers(floor.shop.name, chosen.length ? chosen : ready)}>
+            {chosen.length ? `🖨 In ${chosen.length} bàn đã chọn` : '🖨 In tất cả'}
           </button>
         }
       >
         {missing > 0 && <p className="warn">{canTables ? `Đang tạo mã cho ${missing} bàn…` : `${missing} bàn chưa có mã: cần người có quyền Sửa khu vực và bàn mở trang này.`}</p>}
         <p className="muted small">In ra giấy A4 (12 tem một trang), cắt theo đường viền, dán lên bàn. Bàn tạm không có tem.</p>
+        {ready.length > 0 && (
+          <div className="chip-row qr-pick" role="group" aria-label="Chọn bàn để in">
+            <span className="muted small">Chọn bàn để in:</span>
+            {areas.map(a => {
+              const all = a.ids.every(id => picked.has(id))
+              return (
+                <button key={a.id} type="button" className={'chip' + (all ? ' is-on' : '')} aria-pressed={all} onClick={() => toggle(a.ids, !all)}>
+                  {a.name} ({a.ids.length})
+                </button>
+              )
+            })}
+            <button type="button" className="chip" onClick={() => toggle(ready.map(t => t.id), true)}>
+              Chọn tất cả
+            </button>
+            {chosen.length > 0 && (
+              <button type="button" className="chip" onClick={() => setPicked(new Set())}>
+                Bỏ chọn ({chosen.length})
+              </button>
+            )}
+          </div>
+        )}
         <ul className="qr-grid">
           {ready.map(t => (
-            <li key={t.id} className="qr-card">
-              <div className="qr-img" dangerouslySetInnerHTML={{ __html: qrSvg(guestLink(t.qrToken!), `Mã QR bàn ${t.name}`) }} />
+            <li key={t.id} className={'qr-card' + (picked.has(t.id) ? ' is-picked' : '')}>
+              <label className="qr-check">
+                <input type="checkbox" checked={picked.has(t.id)} onChange={e => toggle([t.id], e.target.checked)} />
+                <span>Chọn in</span>
+              </label>
+              <div className="qr-img" onClick={() => toggle([t.id], !picked.has(t.id))} dangerouslySetInnerHTML={{ __html: qrSvg(guestLink(t.qrToken!), `Mã QR bàn ${t.name}`) }} />
               <b>Bàn {t.name}</b>
               <span className="muted small">{floor.areas.find(a => a.id === t.areaId)?.name}</span>
               <div className="btn-pair">
