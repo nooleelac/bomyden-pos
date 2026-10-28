@@ -49,11 +49,6 @@ const REQUEST_LABEL: Record<GuestRequestKind, Record<GuestRequestStatus, string>
   service: { pending: 'Gọi phục vụ · đã báo nhân viên', accepted: 'Gọi phục vụ · nhân viên đang tới', rejected: 'Gọi phục vụ · nhân viên không nhận' },
 }
 
-/** Quick picks for the note of a call. */
-const CALL_CHIPS = {
-  service: ['Thêm nước đá', 'Thêm chén đũa', 'Dọn bàn', 'Tư vấn món'],
-  bill: ['Tiền mặt', 'Chuyển khoản', 'Thẻ'],
-} as const
 
 export function GuestApp(props: { repo: GuestRepo; token: string }) {
   const { repo, token } = props
@@ -229,6 +224,7 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
       {calling && (
         <CallSheet
           kind={calling}
+          chips={view.callChips[calling]}
           tableName={view.tableName}
           onClose={() => setCalling(null)}
           onSend={async note => {
@@ -321,7 +317,7 @@ function ConfirmSheet(props: {
   )
 }
 
-function CallSheet(props: { kind: 'bill' | 'service'; tableName: string; onClose: () => void; onSend: (note: string) => Promise<void>; onError: (m: string) => void }) {
+function CallSheet(props: { kind: 'bill' | 'service'; chips: string[]; tableName: string; onClose: () => void; onSend: (note: string) => Promise<void>; onError: (m: string) => void }) {
   const bill = props.kind === 'bill'
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
@@ -352,16 +348,18 @@ function CallSheet(props: { kind: 'bill' | 'service'; tableName: string; onClose
         </button>
       }
     >
+      {props.chips.length > 0 && (
       <fieldset className="pick-group">
         <legend>{bill ? 'Bạn muốn thanh toán bằng (không bắt buộc)' : 'Bạn cần gì? (không bắt buộc)'}</legend>
         <div className="chip-row">
-          {CALL_CHIPS[props.kind].map(x => (
+          {props.chips.map(x => (
             <button key={x} type="button" className={'chip' + (on(x) ? ' is-on' : '')} aria-pressed={on(x)} onClick={() => pick(x)}>
               {x}
             </button>
           ))}
         </div>
       </fieldset>
+      )}
       <label className="field">
         <span className="field-label">Ghi chú thêm</span>
         <input maxLength={NOTE_MAX} placeholder={bill ? 'VD: xuất hoá đơn công ty' : 'VD: thêm 2 ly đá'} value={note} onChange={e => setNote(e.target.value)} />

@@ -6,7 +6,7 @@ import * as E from './engine'
 import { floorEvents } from './notify'
 import { createMemoryFloorRepo } from './repo'
 import { seedFloor } from './seed'
-import type { Actor, FloorState, SendLineInput } from './types'
+import { callChips, DEFAULT_CALL_CHIPS, type Actor, type FloorState, type SendLineInput } from './types'
 
 const menu = seedMenu()
 const T0 = new Date('2026-10-29T12:00:00Z')
@@ -121,6 +121,16 @@ describe('khách gọi món qua QR', () => {
     expect(done.state.lines).toHaveLength(1)
   })
 
+  it('câu gợi ý: the branch edits its own lists; a list never saved stays the default', () => {
+    const { s } = withQr()
+    expect(callChips(s.settings.guestCallChips)).toEqual(DEFAULT_CALL_CHIPS)
+    const next = E.setGuestCallChips(s, { service: ['  Thêm   khăn giấy ', 'Dọn bàn', 'Dọn bàn', ''], bill: [] }, manager)
+    expect(next.settings.guestCallChips).toEqual({ service: ['Thêm khăn giấy', 'Dọn bàn'], bill: [] })
+    expect(() => E.setGuestCallChips(s, { service: ['x'.repeat(31)], bill: [] }, manager)).toThrow('dài quá 30')
+    expect(() => E.setGuestCallChips(s, { service: Array.from({ length: 13 }, (_, i) => `câu ${i}`), bill: [] }, manager)).toThrow('tối đa 12')
+    expect(() => E.setGuestCallChips(s, DEFAULT_CALL_CHIPS, waiter)).toThrow('Chưa có quyền')
+  })
+
   it('the guest page on sample data: menu, send, status with the table dishes after Nhận', async () => {
     const menuRepo = createMemoryMenuRepo()
     let actor: Actor = { name: 'Chủ quán', role: 'manager' }
@@ -129,6 +139,7 @@ describe('khách gọi món qua QR', () => {
     const token = (await floor.load()).tables.find(t => t.id === 't-7')!.qrToken!
     const guest = createMemoryGuestRepo(floor, menuRepo)
     const view = await guest.load(token)
+    expect(view.callChips).toEqual(DEFAULT_CALL_CHIPS)
     expect(view).toMatchObject({ tableId: 't-7', tableName: '7' })
     await guest.place(token, { id: 'g-1', lines: [beer] })
     expect((await guest.status(token, ['g-1'])).requests).toEqual([expect.objectContaining({ id: 'g-1', status: 'pending' })])

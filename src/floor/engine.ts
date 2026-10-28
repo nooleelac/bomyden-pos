@@ -13,8 +13,8 @@ import type { Menu } from '../menu/types'
 import { TEXT_MAX, receiptTemplate } from '../cashier/template'
 import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
-  NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type BankAccount, type Bill, type FloorSettings, type FloorState, type GuestRequest, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
+  CALL_CHIP_LEN, CALL_CHIP_MAX, NOTE_MAX, VOID_REASONS, RUSH_REASONS,
+  type Actor, type Area, type BankAccount, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestRequest, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -1174,6 +1174,23 @@ export function tableQrTokens(s: FloorState, tableId: string | null, c: Ctx): Fl
   managerOnly(c)
   if (tableId && !s.tables.some(t => t.id === tableId)) fail('Không tìm thấy bàn')
   return { ...s, tables: s.tables.map(t => ((tableId ? t.id === tableId : !t.qrToken) ? { ...t, qrToken: qrToken() } : t)) }
+}
+
+/** Cài đặt → Mã QR gọi món: trimmed, no repeats, at most CALL_CHIP_MAX of 1–CALL_CHIP_LEN characters per list. */
+export function checkCallChips(p: CallChips): CallChips {
+  const clean = (list: string[], what: string) => {
+    const out = [...new Set(list.map(x => x.trim().replace(/\s+/g, ' ')).filter(Boolean))]
+    if (out.length > CALL_CHIP_MAX) fail(`${what}: tối đa ${CALL_CHIP_MAX} câu gợi ý`)
+    const long = out.find(x => x.length > CALL_CHIP_LEN)
+    if (long) fail(`"${long}" dài quá ${CALL_CHIP_LEN} ký tự`)
+    return out
+  }
+  return { service: clean(p.service, 'Gọi phục vụ'), bill: clean(p.bill, 'Gọi thanh toán') }
+}
+
+export function setGuestCallChips(s: FloorState, p: CallChips, c: Ctx): FloorState {
+  need(c, 'settings.edit')
+  return { ...s, settings: { ...s.settings, guestCallChips: checkCallChips(p) } }
 }
 
 export function setGuestOrder(s: FloorState, on: boolean, c: Ctx): FloorState {

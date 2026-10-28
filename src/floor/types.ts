@@ -210,6 +210,8 @@ export interface FloorSettings {
   voidApproval?: 'sent' | 'started'
   /** Khách quét QR tự gọi món (0023 branch_settings.guest_order); missing = on. */
   guestOrder?: boolean
+  /** Quick picks on Gọi phục vụ / Gọi thanh toán (0025); a missing list = DEFAULT_CALL_CHIPS. */
+  guestCallChips?: Partial<CallChips>
 }
 
 export interface FloorState {
@@ -237,6 +239,21 @@ export type GuestRequestStatus = 'pending' | 'accepted' | 'rejected'
 
 /** Gọi món (dishes, 0023), Gọi thanh toán or Gọi phục vụ (0024: no lines, Đã xử lý marks them done). */
 export type GuestRequestKind = 'order' | 'bill' | 'service'
+
+/** The quick picks a guest taps when calling: what they need (phục vụ), how they pay (thanh toán). */
+export type CallChips = Record<'service' | 'bill', string[]>
+export const DEFAULT_CALL_CHIPS: CallChips = {
+  service: ['Thêm nước đá', 'Thêm chén đũa', 'Dọn bàn', 'Tư vấn món'],
+  bill: ['Tiền mặt', 'Chuyển khoản', 'Thẻ'],
+}
+export const CALL_CHIP_MAX = 12
+export const CALL_CHIP_LEN = 30
+
+/** The branch's lists, a missing one filled with the default. */
+export const callChips = (c: Partial<CallChips> | null | undefined): CallChips => ({
+  service: c?.service ?? DEFAULT_CALL_CHIPS.service,
+  bill: c?.bill ?? DEFAULT_CALL_CHIPS.bill,
+})
 
 /** What a guest sent from the table's QR page. Nothing reaches the kitchen until a waiter accepts it. */
 export interface GuestRequest {

@@ -98,3 +98,10 @@
 .qr-check { display: flex; align-items: center; gap: 6px; align-self: flex-start; font-size: 14px; cursor: pointer; }
 .qr-check input { width: 20px; height: 20px; min-height: 0; }
 .qr-img { cursor: pointer; }
+
+/* Câu gợi ý khi khách gọi */
+.chip-edit { margin-top: 12px; }
+.chip-edit-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
+.chip-edit-row input { flex: 1; min-width: 0; }
+.chip-edit-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.chip-edit-add input { flex: 1 1 160px; min-width: 0; }

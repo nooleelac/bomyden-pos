@@ -7,7 +7,8 @@ import type { GuestCallInput, GuestOrderInput } from '../floor/engine'
 import { guestTable } from '../floor/engine'
 import { openOrdersAt } from '../floor/logic'
 import type { FloorRepo } from '../floor/repo'
-import type { GuestRequestKind, GuestRequestStatus, LineStatus } from '../floor/types'
+import { callChips, type CallChips, type GuestRequestKind, type GuestRequestStatus, type LineStatus } from '../floor/types'
+import { chipsFrom } from '../floor/supabaseRepo'
 import type { MenuRepo } from '../menu/repo'
 import { MENU_KEYS, menuFromRows } from '../menu/supabaseRepo'
 import type { Menu } from '../menu/types'
@@ -18,6 +19,8 @@ export interface GuestView {
   shopName: string
   /** Inside opening hours (always true when the branch sets none). */
   isOpen: boolean
+  /** Quick picks on Gọi phục vụ / Gọi thanh toán. */
+  callChips: CallChips
   menu: Menu
 }
 
@@ -52,7 +55,7 @@ export function createSupabaseGuestRepo(db: SupabaseClient): GuestRepo {
       const r = await rpc<Row>(db, 'guest_menu', { p_token: token })
       const t = (r.table as Row | null) ?? {}
       const m = (r.menu as Record<string, Row[]> | null) ?? {}
-      return { tableId: s(t.id), tableName: s(t.name), shopName: s(r.shop_name), isOpen: r.is_open !== false, menu: menuFromRows(MENU_KEYS.map(k => m[k] ?? [])) }
+      return { tableId: s(t.id), tableName: s(t.name), shopName: s(r.shop_name), isOpen: r.is_open !== false, callChips: callChips(chipsFrom(r.call_chips)), menu: menuFromRows(MENU_KEYS.map(k => m[k] ?? [])) }
     },
     async place(token, inp) {
       await rpc(db, 'guest_place_order', { p_token: token, p_id: inp.id, p_lines: inp.lines, p_note: inp.note ?? '', p_guests: inp.guestCount ?? null })
@@ -76,7 +79,7 @@ export function createMemoryGuestRepo(floor: FloorRepo, menu: MenuRepo): GuestRe
     async load(token) {
       const st = await floor.load()
       const t = guestTable(st, token)
-      return { tableId: t.id, tableName: t.name, shopName: st.shop.name, isOpen: true, menu: await menu.load() }
+      return { tableId: t.id, tableName: t.name, shopName: st.shop.name, isOpen: true, callChips: callChips(st.settings.guestCallChips), menu: await menu.load() }
     },
     async place(token, inp) {
       if (!floor.placeGuestOrder) throw new Error('Chưa nối được với quán')

@@ -1,14 +1,16 @@
 // #/cai-dat/ma-qr: one QR sticker per table for khách tự gọi món (0023). Opening the page gives every table without a
 // token one (tables.edit); tick tables (or whole areas) and print just those, or In tất cả, on A4 sheets of stickers; Đổi mã replaces one table's token, so a photo of
-// the old sticker stops working. settings.edit turns guest ordering on or off for the branch.
+// the old sticker stops working. settings.edit turns guest ordering on or off for the branch and edits the quick picks
+// a guest taps on Gọi phục vụ / Gọi thanh toán (0025).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth/context'
 import { roleCan } from '../auth/permissions'
 import { qrSvg } from '../cashier/print'
+import { checkCallChips } from '../floor/engine'
 import { errText } from '../floor/hooks'
 import type { FloorRepo } from '../floor/repo'
-import type { FloorState, Table } from '../floor/types'
+import { CALL_CHIP_LEN, CALL_CHIP_MAX, callChips, DEFAULT_CALL_CHIPS, type CallChips, type FloorState, type Table } from '../floor/types'
 import { Section, Switch } from '../menu/ui'
 
 /** The link a table's QR opens: this app's address with #/goi/<token>. */
@@ -110,6 +112,8 @@ export function GuestQrSettings(props: { floor: FloorState; repo: FloorRepo; onE
         </p>
       </Section>
 
+      <CallChipsSection floor={floor} repo={repo} canEdit={canSettings} onError={props.onError} onInfo={props.onInfo} />
+
       <Section
         title={`Tem dán bàn (${ready.length}/${tables.length})`}
         aside={
@@ -172,5 +176,117 @@ export function GuestQrSettings(props: { floor: FloorState; repo: FloorRepo; onE
         </ul>
       </Section>
     </>
+  )
+}
+
+const CHIP_LISTS: { kind: keyof CallChips; title: string; hint: string; placeholder: string }[] = [
+  { kind: 'service', title: '🙋 Gọi phục vụ', hint: 'Khách chạm để báo cần gì (chọn được nhiều câu)', placeholder: 'VD: Thêm khăn giấy' },
+  { kind: 'bill', title: '🧾 Gọi thanh toán', hint: 'Khách chạm để báo cách trả tiền (chọn một)', placeholder: 'VD: Ví MoMo' },
+]
+
+/** Câu gợi ý khi khách gọi: add, rename, reorder, remove, back to the defaults; saved for the branch in one go. */
+function CallChipsSection(props: { floor: FloorState; repo: FloorRepo; canEdit: boolean; onError: (m: string) => void; onInfo: (m: string) => void }) {
+  const saved = callChips(props.floor.settings.guestCallChips)
+  const [draft, setDraft] = useState<CallChips>(saved)
+  const [adding, setAdding] = useState<Record<keyof CallChips, string>>({ service: '', bill: '' })
+  const [saving, setSaving] = useState(false)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
+  const setList = (kind: keyof CallChips, f: (l: string[]) => string[]) => setDraft(d => ({ ...d, [kind]: f(d[kind]) }))
+  const add = (kind: keyof CallChips) => {
+    const x = adding[kind].trim().replace(/\s+/g, ' ')
+    if (!x) return
+    if (draft[kind].some(y => y.toLowerCase() === x.toLowerCase())) return props.onError(`Đã có câu "${x}"`)
+    if (draft[kind].length >= CALL_CHIP_MAX) return props.onError(`Tối đa ${CALL_CHIP_MAX} câu gợi ý`)
+    setList(kind, l => [...l, x])
+    setAdding(a => ({ ...a, [kind]: '' }))
+  }
+  const move = (kind: keyof CallChips, i: number, by: -1 | 1) =>
+    setList(kind, l => {
+      const j = i + by
+      if (j < 0 || j >= l.length) return l
+      const n = [...l]
+      ;[n[i], n[j]] = [n[j], n[i]]
+      return n
+    })
+  const save = () => {
+    let v: CallChips
+    try {
+      v = checkCallChips(draft)
+    } catch (e) {
+      return props.onError(errText(e))
+    }
+    setDraft(v)
+    setSaving(true)
+    props.repo
+      .setGuestCallChips(v)
+      .then(() => props.onInfo('Đã lưu câu gợi ý'), e => props.onError(errText(e)))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <Section
+      title="Câu gợi ý khi khách gọi"
+      aside={
+        props.canEdit && (
+          <button type="button" className="btn btn-primary btn-small" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Đang lưu…' : 'Lưu'}
+          </button>
+        )
+      }
+    >
+      <p className="muted small">Hiện thành nút bấm nhanh trên điện thoại khách. Khách vẫn ghi chú thêm được. Xoá hết thì khách chỉ thấy ô ghi chú.</p>
+      {CHIP_LISTS.map(({ kind, title, hint, placeholder }) => (
+        <fieldset key={kind} className="pick-group chip-edit">
+          <legend>
+            {title} <span className="muted small">· {hint}</span>
+          </legend>
+          {draft[kind].length === 0 && <p className="muted small">Chưa có câu gợi ý nào.</p>}
+          <ul className="rows">
+            {draft[kind].map((x, i) => (
+              <li key={i} className="chip-edit-row">
+                <input
+                  aria-label={`Câu gợi ý ${i + 1}`}
+                  maxLength={CALL_CHIP_LEN}
+                  value={x}
+                  disabled={!props.canEdit}
+                  onChange={e => setList(kind, l => l.map((y, k) => (k === i ? e.target.value : y)))}
+                />
+                {props.canEdit && (
+                  <>
+                    <button type="button" className="icon-btn" aria-label="Lên" disabled={i === 0} onClick={() => move(kind, i, -1)}>
+                      ↑
+                    </button>
+                    <button type="button" className="icon-btn" aria-label="Xuống" disabled={i === draft[kind].length - 1} onClick={() => move(kind, i, 1)}>
+                      ↓
+                    </button>
+                    <button type="button" className="icon-btn" aria-label={`Xoá "${x}"`} onClick={() => setList(kind, l => l.filter((_, k) => k !== i))}>
+                      ✕
+                    </button>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+          {props.canEdit && (
+            <div className="chip-edit-add">
+              <input
+                maxLength={CALL_CHIP_LEN}
+                placeholder={placeholder}
+                value={adding[kind]}
+                onChange={e => setAdding(a => ({ ...a, [kind]: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add(kind))}
+              />
+              <button type="button" className="btn btn-small" disabled={!adding[kind].trim() || draft[kind].length >= CALL_CHIP_MAX} onClick={() => add(kind)}>
+                + Thêm
+              </button>
+              <button type="button" className="link small" onClick={() => setList(kind, () => [...DEFAULT_CALL_CHIPS[kind]])}>
+                Về mặc định
+              </button>
+            </div>
+          )}
+        </fieldset>
+      ))}
+      {!props.canEdit && <p className="muted small">Cần quyền Cài đặt đăng nhập và quán để sửa.</p>}
+    </Section>
   )
 }

@@ -13,7 +13,7 @@ import { newId } from '../menu/repo'
 import { liveTables } from '../lib/live'
 import * as E from './engine'
 import type { FloorRepo } from './repo'
-import type { Actor, BankAccount, Bill, FloorState, GuestRequest, GuestRequestStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
+import type { Actor, BankAccount, Bill, CallChips, FloorState, GuestRequest, GuestRequestStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
 
 type Row = Record<string, unknown>
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>
@@ -38,6 +38,16 @@ const sn = (v: unknown) => (v == null ? null : String(v))
 const n = (v: unknown) => Number(v ?? 0)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const idOf = (r: unknown) => s((r as Row | null)?.id)
+
+/** branch_settings.guest_call_chips (0025): only the lists that are there (a missing one = the default). */
+export function chipsFrom(v: unknown): Partial<CallChips> {
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  const list = (x: unknown) => (Array.isArray(x) ? x.map(String) : undefined)
+  const out: Partial<CallChips> = {}
+  if (list(o.service)) out.service = list(o.service)
+  if (list(o.bill)) out.bill = list(o.bill)
+  return out
+}
 
 /** payments.bank_account (0020): the account a transfer went to, null for older rows. */
 function toBank(v: unknown): BankAccount | null {
@@ -140,6 +150,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         voidApproval: sh.void_approval === 'started' ? 'started' : 'sent',
         // 0023: missing column (not migrated yet) reads as on; the QR page itself says when the server is not ready
         guestOrder: sh.guest_order !== false,
+        guestCallChips: chipsFrom(sh.guest_call_chips),
         timing: Object.fromEntries(stations.map(st => [s(st.id), { warn: n(st.sla_warn_min), late: n(st.sla_late_min) }])),
       },
       areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false })),
@@ -352,6 +363,10 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     rejectGuest: (id, reason) => call('reject_guest_request', { p_id: id, p_reason: reason }, (st, c) => E.rejectGuestRequest(st, id, reason, c)),
     tableQrTokens: id => call('table_qr_tokens', { p_table: id }),
     setGuestOrder: on => call('set_guest_order', { p_on: on }, (st, c) => E.setGuestOrder(st, on, c)),
+    setGuestCallChips: p => {
+      const v = E.checkCallChips(p)
+      return call('set_guest_call_chips', { p: v }, (st, c) => E.setGuestCallChips(st, v, c))
+    },
     saveTable: t =>
       act(async () => {
         const row = { id: t.id, area_id: t.areaId, name: t.name.trim(), seats: t.seats, sort: t.sort, active: t.active, is_temporary: t.temporary }
