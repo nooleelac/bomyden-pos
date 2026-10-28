@@ -1,4 +1,4 @@
-// Khách gọi món qua QR (#/ban/khach): what guests sent from their table, oldest first. Nhận sends it to the kitchen
+// QR order (the rail item of Sơ đồ bàn and Đơn; #/ban/khach opens it): what guests sent from their table, oldest first. Nhận sends it to the kitchen
 // on the table's order (opened if the table is free) as one round; Từ chối tells the guest why. Below: the last
 // ones decided, so a second waiter sees who took which.
 
@@ -38,13 +38,10 @@ export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: Floo
   }
 
   return (
-    <main className="guest-requests">
-      <header className="card-head">
-        <h1>🙋 Khách gọi món qua QR</h1>
-        <a className="btn btn-small" href="#/ban">
-          ‹ Sơ đồ bàn
-        </a>
-      </header>
+    <div className="guest-requests">
+      <h2 className="section-head">
+        <span>📱 Khách gọi món qua QR</span>
+      </h2>
       {floor.settings.guestOrder === false && <p className="warn">Đang tắt gọi món qua QR (Cài đặt → Mã QR gọi món).</p>}
       {pending.length === 0 && <p className="muted">Không có yêu cầu nào đang chờ.</p>}
       {pending.map(r => {
@@ -132,7 +129,7 @@ export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: Floo
           }
         />
       )}
-    </main>
+    </div>
   )
 }
 

@@ -325,7 +325,8 @@
 }
 @keyframes guest-pulse { 50% { box-shadow: 0 0 0 4px rgba(178, 94, 0, .25); } }
 .tile-guest { position: absolute; top: 4px; right: 6px; font-size: 18px; line-height: 1; }
-.guest-requests { padding: 8px 16px 32px; max-width: 720px; margin: 0 auto; }
+.guest-requests { padding-bottom: 32px; max-width: 720px; }
 .guest-card .btn-row { flex-wrap: nowrap; }
 .guest-note { margin: 8px 0 0; padding: 8px 10px; background: var(--accent-soft); border-radius: 8px; }
 @media (prefers-reduced-motion: reduce) { .guest-alert { animation: none; } }
+.rail-nowrap { white-space: nowrap; }

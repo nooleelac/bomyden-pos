@@ -1,5 +1,5 @@
 // Waiter / cashier shell: floor map, order screen, area setup (the "Chờ bưng" bar is hidden: Đã bưng is marked
-// on the order screen). Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat  #/ban/khach (khách gọi món qua QR)
+// on the order screen). Routes (hash): #/don (đơn đang mở)  #/ban  #/ban/don/<orderId>  #/ban/caidat  #/ban/khach (Sơ đồ bàn on QR order)
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
@@ -11,7 +11,6 @@ import { errText, useLive, useNow, useOnline, useRoute } from './hooks'
 import type { FloorRepo } from './repo'
 import { play, unlockSound } from './sound'
 import { FloorMap } from './screens/FloorMap'
-import { GuestRequests } from './screens/GuestRequests'
 import { pendingGuests } from './logic'
 import { OrdersPage } from './screens/OrdersPage'
 import { OrderView } from './screens/OrderView'
@@ -52,7 +51,7 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
   }, [floor])
 
   if (!floor || !menu) return <div className="menu-app loading">Đang tải sơ đồ bàn…</div>
-  const page = route[0] === 'don' ? 'orders' : route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : route[1] === 'khach' ? 'guests' : 'map'
+  const page = route[0] === 'don' ? 'orders' : route[1] === 'don' && route[2] ? 'order' : route[1] === 'caidat' ? 'setup' : 'map'
 
   return (
     <div className="menu-app floor-app">
@@ -69,10 +68,9 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
           )}
         </div>
       )}
-      {page === 'orders' && <OrdersPage floor={floor} now={now} role={role} />}
-      {page === 'map' && <FloorMap floor={floor} repo={floorRepo} now={now} role={role} me={me} online={online} onError={onError} />}
+      {page === 'orders' && <OrdersPage floor={floor} menu={menu} repo={floorRepo} now={now} role={role} onError={onError} onInfo={onInfo} />}
+      {page === 'map' && <FloorMap floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} online={online} qr={route[1] === 'khach'} onError={onError} onInfo={onInfo} />}
       {page === 'order' && <OrderView key={route[2]} floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} orderId={route[2]} onError={onError} onInfo={onInfo} />}
-      {page === 'guests' && <GuestRequests floor={floor} menu={menu} repo={floorRepo} now={now} onError={onError} onInfo={onInfo} />}
       {page === 'setup' && (
         <main>
           <SetupScreen floor={floor} repo={floorRepo} role={role} onError={onError} />

@@ -1,27 +1,39 @@
 // #/don: every open order as a small card (Sapo style): strip with where it is (Tại bàn · khu, Mang về, Chờ thanh
-// toán), the table number on the left, time seated and amount on the right. Tap = the order screen. Rail on the left: Tất cả / Tại bàn / Mang về / Chờ thanh toán.
+// toán), the table number on the left, time seated and amount on the right. Tap = the order screen. Rail on the left: Tất cả / Tại bàn / Mang về / Chờ thanh toán / QR order (khách gửi món, chờ xác nhận).
 
 import { useState } from 'react'
 import { vnd } from '../../menu/picker'
-import { isOpen, minutesText, orderAmount, orderLabel, orderProgress, PROGRESS_LABEL } from '../logic'
+import type { Menu } from '../../menu/types'
+import { isOpen, minutesText, orderAmount, orderLabel, orderProgress, pendingGuests, PROGRESS_LABEL } from '../logic'
+import type { FloorRepo } from '../repo'
 import type { FloorState, Order, Role } from '../types'
+import { GuestRequests } from './GuestRequests'
 
-type Filter = 'all' | 'dine_in' | 'takeaway' | 'bill'
+type Filter = 'all' | 'dine_in' | 'takeaway' | 'bill' | 'qr'
 
 const stateOf = (o: Order) => (o.payingAt ? 'paying' : o.billRequestedAt ? 'bill' : 'open')
 const STATE_LABEL = { bill: 'Chờ thanh toán', paying: 'Đang thanh toán' } as const
 
-export function OrdersPage(props: { floor: FloorState; now: Date; role: Role }) {
+export function OrdersPage(props: {
+  floor: FloorState
+  menu: Menu
+  repo: FloorRepo
+  now: Date
+  role: Role
+  onError: (m: string) => void
+  onInfo: (m: string) => void
+}) {
   const { floor, now } = props
   const [filter, setFilter] = useState<Filter>('all')
   const open = floor.orders.filter(isOpen).sort((a, b) => a.openedAt.localeCompare(b.openedAt))
-  const groups: { id: Filter; label: string; icon: string; list: Order[] }[] = [
+  const qrCount = pendingGuests(floor).length
+  const groups: { id: Exclude<Filter, 'qr'>; label: string; icon: string; list: Order[] }[] = [
     { id: 'all', label: 'Tất cả', icon: '▦', list: open },
     { id: 'dine_in', label: 'Tại bàn', icon: '🍽️', list: open.filter(o => o.kind !== 'takeaway') },
     { id: 'takeaway', label: 'Mang về', icon: '🥡', list: open.filter(o => o.kind === 'takeaway') },
     { id: 'bill', label: 'Chờ thanh toán', icon: '🧮', list: open.filter(o => stateOf(o) !== 'open') },
   ]
-  const shown = groups.find(g => g.id === filter)!.list
+  const shown = groups.find(g => g.id === filter)?.list ?? []
   // the strip says where the order is: Chờ / Đang thanh toán, else Mang về or Tại bàn · khu vực
   const placeOf = (o: Order) => {
     const st = stateOf(o)
@@ -44,9 +56,17 @@ export function OrdersPage(props: { floor: FloorState; now: Date; role: Role }) 
               {g.list.length > 0 && <span className="rail-count">{g.list.length}</span>}
             </button>
           ))}
+          <button type="button" className={'rail-item' + (filter === 'qr' ? ' is-on' : '')} onClick={() => setFilter('qr')}>
+            <span className="rail-icon" aria-hidden>
+              📱
+            </span>
+            <span className="rail-nowrap">QR order</span>
+            {qrCount > 0 && <span className="rail-count">{qrCount}</span>}
+          </button>
         </nav>
         <div className="floor-main">
-          {shown.length === 0 && <p className="empty">Không có đơn nào</p>}
+          {filter === 'qr' && <GuestRequests floor={floor} menu={props.menu} repo={props.repo} now={now} onError={props.onError} onInfo={props.onInfo} />}
+          {filter !== 'qr' && shown.length === 0 && <p className="empty">Không có đơn nào</p>}
           <ul className="order-cards">
             {shown.map(o => {
               const st = stateOf(o)

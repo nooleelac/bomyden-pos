@@ -3,22 +3,39 @@
 // table is shared), long-press (or right-click) for the quick menu (on a free table: guest count and gộp bàn).
 // Takeaway orders sit in their own column.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { vnd } from '../../menu/picker'
 import { newId } from '../../menu/repo'
 import { go, markQuickOpened, readRoute, takeQuickOpened } from '../hooks'
 import { areaTables, formatDuration, pendingGuests, shortMinutes, openOrdersAt, orderAmount, orderLabel, orderProgress, orderTitle, PROGRESS_LABEL, tableTile, type TableTile } from '../logic'
 import type { FloorRepo } from '../repo'
 import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableState } from '../types'
+import { GuestRequests } from './GuestRequests'
 import { GuestPicker, Sheet } from './Sheet'
+import type { Menu } from '../../menu/types'
 
 const TAKEAWAY = 'takeaway'
+/** QR order: what guests sent from the table QR, waiting for Nhận (#/ban/khach opens it). */
+const QR = 'qr'
 const ALL = 'all'
 
-export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date; role: Role; me: string; online: boolean; onError: (m: string) => void }) {
+export function FloorMap(props: {
+  floor: FloorState
+  menu: Menu
+  repo: FloorRepo
+  now: Date
+  role: Role
+  me: string
+  online: boolean
+  /** #/ban/khach: show QR order. */
+  qr?: boolean
+  onError: (m: string) => void
+  onInfo: (m: string) => void
+}) {
   const { floor, repo, now } = props
   const areas = [...floor.areas].sort((a, b) => a.sort - b.sort)
   const [areaId, setAreaId] = useState(() => {
+    if (props.qr) return QR
     try {
       return sessionStorage.getItem('bmd-area') ?? ALL
     } catch {
@@ -36,6 +53,10 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   const allTiles = floor.tables.filter(t => t.active).map(t => tableTile(floor, t, now))
   const count = (ts: TableTile[], st: TableState) => ts.filter(t => t.state === st).length
   // Tất cả: every area's tables, one block per area
+  // the bell's link (#/ban/khach) while the map is already open
+  useEffect(() => {
+    if (props.qr) setAreaId(QR)
+  }, [props.qr])
   const showAll = areaId === ALL
   const sections = showAll
     ? areas.map(a => ({ id: a.id, name: a.name, tiles: areaTables(floor, a.id).map(t => tableTile(floor, t, now)) })).filter(x => x.tiles.length > 0)
@@ -85,6 +106,8 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
 
   const pickArea = (id: string) => {
     setAreaId(id)
+    if (readRoute()[1] === 'khach') go('ban')
+    if (id === QR) return // not remembered: back on the map next time
     try {
       sessionStorage.setItem('bmd-area', id)
     } catch {
@@ -95,6 +118,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
   const guests = pendingGuests(floor)
   const guestTables = new Set(guests.map(r => r.tableId))
   const showTakeaway = areaId === TAKEAWAY
+  const showQr = areaId === QR
   const since = (iso: string) => formatDuration(now.getTime() - new Date(iso).getTime())
   const tileSub = (t: TableTile) =>
     t.state === 'free' ? 'Bàn trống'
@@ -114,8 +138,8 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
           Bàn trống: <b>{count(allTiles, 'free')}</b>/{allTiles.length}
         </span>
       </p>
-      {guests.length > 0 && (
-        <a className="guest-alert" href="#/ban/khach">
+      {guests.length > 0 && !showQr && (
+        <a className="guest-alert" href="#/ban/khach" onClick={e => (e.preventDefault(), pickArea(QR))}>
           🙋 {guests.length} yêu cầu gọi món từ khách ({[...guestTables].map(id => floor.tables.find(t => t.id === id)?.name ?? '?').join(', ')}): xem và xác nhận ›
         </a>
       )}
@@ -125,7 +149,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
             Tất cả
           </button>
           {areas.map(a => (
-            <button key={a.id} type="button" className={'rail-item' + (!showTakeaway && !showAll && a.id === area?.id ? ' is-on' : '') + (a.active ? '' : ' is-closed')} onClick={() => pickArea(a.id)}>
+            <button key={a.id} type="button" className={'rail-item' + (!showTakeaway && !showQr && !showAll && a.id === area?.id ? ' is-on' : '') + (a.active ? '' : ' is-closed')} onClick={() => pickArea(a.id)}>
               {a.name}
             </button>
           ))}
@@ -133,9 +157,18 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
             🥡 Mang về
             {takeaways.length > 0 && <span className="rail-count">{takeaways.length}</span>}
           </button>
+          <button type="button" className={'rail-item' + (showQr ? ' is-on' : '')} onClick={() => pickArea(QR)}>
+            <span className="rail-icon" aria-hidden>
+              📱
+            </span>
+            <span className="rail-nowrap">QR order</span>
+            {guests.length > 0 && <span className="rail-count">{guests.length}</span>}
+          </button>
         </nav>
         <div className="floor-main">
-          {showTakeaway ? (
+          {showQr ? (
+            <GuestRequests floor={floor} menu={props.menu} repo={repo} now={now} onError={props.onError} onInfo={props.onInfo} />
+          ) : showTakeaway ? (
             <section className="card takeaway-col" aria-label="Mang về">
               <header className="card-head">
                 <h2>Mang về</h2>
