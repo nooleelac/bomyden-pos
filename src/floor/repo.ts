@@ -8,7 +8,7 @@ import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import * as E from './engine'
 import { seedFloor } from './seed'
-import type { Actor, Area, BillHistory, FloorState, LineStatus, PaymentSettings, SendLineInput, Table } from './types'
+import type { Actor, Area, BillHistory, FloorState, LineStatus, PaymentSettings, ReceiptSettings, SendLineInput, Table } from './types'
 
 export interface FloorRepo {
   readonly source: 'sample' | 'supabase'
@@ -20,7 +20,7 @@ export interface FloorRepo {
   subscribe(onChange: (state?: FloorState) => void): () => void
   openTable(inp: E.OpenTableInput): Promise<string>
   addSharedOrder(inp: E.SharedOrderInput): Promise<string>
-  openTakeaway(inp: { customerName?: string }): Promise<string>
+  openTakeaway(inp: { customerName?: string; id?: string }): Promise<string>
   updateOrder(id: string, p: { guestCount?: number; positionLabel?: string; note?: string; allergy?: boolean }): Promise<void>
   closeEmptyOrder(id: string): Promise<void>
   /** Gửi bếp. `batch` is the client id of this tap: resending it never doubles the ticket. */
@@ -58,6 +58,8 @@ export interface FloorRepo {
   saveTable(t: Table): Promise<void>
   /** Cài đặt → Thanh toán (settings.edit): payment methods, bank account, VAT rate, VAT on receipts. */
   saveShop(p: PaymentSettings): Promise<void>
+  /** Cài đặt → Mẫu in (settings.edit): shop name, address, phone, tax code, thank-you line, receipt template. */
+  saveReceipt(p: ReceiptSettings): Promise<void>
   /** Xoá vĩnh viễn (admin.delete, admin_delete in 0010). A bill is deleted with its order. */
   adminDelete(kind: E.FloorDeleteKind, id: string): Promise<void>
   /** Sample only: back to the sample evening. */
@@ -204,6 +206,7 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
     saveArea: a => run((s, c) => E.saveArea(s, a, c)),
     saveTable: t => run((s, c) => E.saveTable(s, t, c)),
     saveShop: p => run((s, c) => E.saveShop(s, p, c)),
+    saveReceipt: p => run((s, c) => E.saveReceipt(s, p, c)),
     adminDelete: async (kind, id) => {
       // a sample bill of an earlier day has no order in today's state: only hide it
       if (kind === 'order' && !state.orders.some(o => o.id === id) && opts.history?.().bills.some(b => b.orderId === id)) {

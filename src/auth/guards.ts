@@ -8,7 +8,7 @@ import { ROLES, type Role } from './types'
 /** Manager or owner by role (labels only; what someone may do comes from their permissions). */
 export const isManager = (r: Role | null | undefined): boolean => r === 'manager' || r === 'owner'
 
-export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'orders' | 'bills' | 'revenue'
+export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'print-settings' | 'receipt-template' | 'orders' | 'bills' | 'revenue'
 
 /** A screen opens with any one of these permissions. */
 const ACCESS: Record<Screen, Perm[]> = {
@@ -23,6 +23,9 @@ const ACCESS: Record<Screen, Perm[]> = {
   'menu-admin': ['menu.edit'],
   settings: ['order.take', 'shift.manage', 'menu.soldout', 'menu.edit', 'tables.edit', 'tables.temp', 'staff.manage', 'devices.manage', 'audit.view', 'settings.edit'],
   'payment-settings': ['settings.edit'],
+  // the printer is set per device, by whoever works the till
+  'print-settings': ['pay.collect', 'shift.manage', 'settings.edit'],
+  'receipt-template': ['settings.edit'],
   orders: ['order.take'],
   // the database shows bills and payments to pay.collect or shift.manage (0009); Doanh thu goes with Xem nhật ký
   // (owner and manager by default)
@@ -42,6 +45,8 @@ export const SCREEN_LABEL: Record<Screen, string> = {
   'menu-admin': 'Quản lý thực đơn',
   settings: 'Cài đặt',
   'payment-settings': 'Thanh toán',
+  'print-settings': 'Máy in',
+  'receipt-template': 'Mẫu in',
   orders: 'Đơn',
   bills: 'Quản lý hoá đơn',
   revenue: 'Quản lý doanh thu',
@@ -55,7 +60,7 @@ export function screenOf(route: string[]): Screen {
   if (top === 'thu-ngan') return 'cashier'
   if (top === 'ca') return 'shift'
   if (top === 'nhan-vien') return 'staff'
-  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : 'settings'
+  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : sub === 'may-in' ? 'print-settings' : sub === 'mau-in' ? 'receipt-template' : 'settings'
   if (top === 'don') return 'orders'
   if (top === 'hoa-don') return 'bills'
   if (top === 'doanh-thu') return 'revenue'
@@ -111,6 +116,8 @@ export function settingsFor(role: Role): (NavItem & { hint: string })[] {
       : { href: '#/soldout', label: 'Hết món', icon: '📋', hint: 'Báo món hết hôm nay', screen: 'menu-soldout' },
     { href: '#/ban/caidat', label: 'Bàn', icon: '🪑', hint: 'Khu vực, thêm bàn, bàn tạm', screen: 'floor-setup' },
     { href: '#/cai-dat/thanh-toan', label: 'Thanh toán', icon: '💳', hint: 'Tiền mặt, ngân hàng, thẻ, thuế', screen: 'payment-settings' },
+    { href: '#/cai-dat/may-in', label: 'Máy in', icon: '🖨', hint: 'Khổ giấy, cỡ chữ, in đậm, in thử', screen: 'print-settings' },
+    { href: '#/cai-dat/mau-in', label: 'Mẫu in', icon: '🧾', hint: 'Tên quán, tiêu đề, lời cảm ơn, cỡ chữ từng phần', screen: 'receipt-template' },
     { href: '#/nhan-vien', label: 'Nhân viên', icon: '👥', hint: role === 'owner' ? 'Nhân viên, phân quyền, PIN, máy, nhật ký' : 'Nhân viên, PIN, máy, nhật ký', screen: 'staff' },
   ]
   return all.filter(i => canOpen(role, i.screen))

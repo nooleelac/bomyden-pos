@@ -21,6 +21,8 @@ interface Source<T> {
 interface Store {
   value: unknown
   seq: number
+  loading: boolean
+  again: boolean
   readers: Set<() => void>
   errors: Set<(e: unknown) => void>
   unsubscribe: (() => void) | null
@@ -33,6 +35,8 @@ function storeOf(src: Source<unknown>): Store {
     const s: Store = {
       value: null,
       seq: 0,
+      loading: false,
+      again: false,
       readers: new Set(),
       errors: new Set(),
       unsubscribe: null,
@@ -44,14 +48,31 @@ function storeOf(src: Source<unknown>): Store {
           s.readers.forEach(f => f())
           return
         }
-        src.load().then(
-          v => {
-            if (n !== s.seq) return // a newer load is on its way
-            s.value = v
-            s.readers.forEach(f => f())
-          },
-          e => s.errors.forEach(f => f(e)),
-        )
+        // one load at a time: changes reported meanwhile (a burst of rows, a wake-up, the echo of this device's own
+        // call) make exactly one more load when it ends, instead of parallel loads racing each other
+        if (s.loading) {
+          s.again = true
+          return
+        }
+        s.loading = true
+        const run = (m: number) => {
+          s.again = false
+          src
+            .load()
+            .then(
+              v => {
+                if (m !== s.seq) return // something newer came meanwhile
+                s.value = v
+                s.readers.forEach(f => f())
+              },
+              e => s.errors.forEach(f => f(e)),
+            )
+            .finally(() => {
+              if (s.again) run(s.seq)
+              else s.loading = false
+            })
+        }
+        run(n)
       },
     }
     stores.set(src, s)

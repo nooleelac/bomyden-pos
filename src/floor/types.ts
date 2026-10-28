@@ -1,6 +1,7 @@
 // Floor (areas, tables, orders on tables) and kitchen model as the screens see it.
 // Mirrors 0001–0005 (snake_case there, camelCase here). Money is whole VND, times are ISO strings.
 
+import type { ReceiptTemplate } from '../cashier/template'
 import type { PayMethod } from '../lib/billing'
 import type { RoundingMode, VatGroup } from '../lib/pricing'
 
@@ -272,6 +273,8 @@ export interface Payment {
   tendered: number | null
   /** Card: last 4 digits or slip number; transfer: bank reference. Optional. */
   ref: string
+  /** Transfer: the shop account the guest paid into, as it was at pay time (null: cash, card, or paid before 0020). */
+  bankAccount?: BankAccount | null
   receivedBy: string
   receivedAt: string
 }
@@ -342,11 +345,13 @@ export interface ShopProfile {
   address: string
   phone: string
   taxCode: string
-  /** NAPAS BIN of the receiving bank, account number and holder for VietQR. */
+  /** NAPAS BIN of the receiving bank, account number and holder for VietQR: the default account (bankAccounts[0]). */
   bankBin: string
   bankName: string
   bankAccount: string
   bankAccountName: string
+  /** Every account the shop takes transfers to, the default first; missing = only the one above (saved before 0019). */
+  bankAccounts?: BankAccount[]
   footer: string
   serviceChargePct: number
   roundingMode: RoundingMode
@@ -357,10 +362,27 @@ export interface ShopProfile {
   vatRate?: number | null
   /** Print the VAT lines on bills and pre-bills (missing = yes). */
   showVat?: boolean
+  /** Cài đặt → Mẫu in: words and sizes on receipts (any shape; receiptTemplate() fills in the defaults). */
+  receiptTemplate?: unknown
 }
 
+/** A bank account the cashier can show a VietQR for. */
+export interface BankAccount {
+  id: string
+  /** NAPAS BIN, e.g. 970436. */
+  bin: string
+  bankName: string
+  account: string
+  holder: string
+}
+
+/** Cài đặt → Mẫu in, saved with saveReceipt: the shop header, the thank-you line and the template. */
+export type ReceiptSettings = Pick<ShopProfile, 'name' | 'address' | 'phone' | 'taxCode' | 'footer'> & { template: ReceiptTemplate }
+
 /** Cài đặt → Thanh toán, saved with saveShop. */
-export type PaymentSettings = Pick<ShopProfile, 'bankBin' | 'bankName' | 'bankAccount' | 'bankAccountName'> & {
+export type PaymentSettings = {
+  /** The default account first. */
+  bankAccounts: BankAccount[]
   payMethods: Record<PayMethod, boolean>
   vatRate: number | null
   showVat: boolean

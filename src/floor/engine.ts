@@ -10,10 +10,11 @@ import { APPROVAL_PERM, PERM_LABEL, roleCan, type Perm } from '../auth/permissio
 import type { ApprovalRequest } from '../auth/types'
 import { componentStationId, componentTicketText, optionStationId } from '../menu/routing'
 import type { Menu } from '../menu/types'
+import { TEXT_MAX, receiptTemplate } from '../cashier/template'
 import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
   NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type Bill, type FloorSettings, type FloorState, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type SendLineInput, type Shift, type SidePart, type Table,
+  type Actor, type Area, type BankAccount, type Bill, type FloorSettings, type FloorState, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -107,6 +108,8 @@ export interface OpenTableInput {
   /** Gộp bàn at opening: these tables join the same order. */
   extraTableIds?: string[]
   positionLabel?: string
+  /** The new order's id, picked by the device so its screen opens before the server answers. */
+  id?: string
 }
 
 /** Opens a table. If another device opened it meanwhile, returns that order instead of a second one. */
@@ -126,6 +129,7 @@ export function openTable(s: FloorState, inp: OpenTableInput, c: Ctx): { state: 
     if (openOrdersAt(s, id).length) fail(`Bàn ${x.name} đang có khách: dùng Gộp bàn sau khi mở`)
   }
   const o = blankOrder(c, {
+    ...(inp.id ? { id: inp.id } : {}),
     tableId: t.id,
     tables: [t.id, ...extra].map(id => ({ tableId: id, suffix: 'A', joinedAt: iso(c) })),
     guestCount: inp.guestCount,
@@ -166,7 +170,7 @@ export function addSharedOrder(s: FloorState, inp: SharedOrderInput, c: Ctx): { 
 }
 
 /** Đơn mang về: MV-01, MV-02 … restarting each business day. */
-export function openTakeaway(s: FloorState, inp: { customerName?: string }, c: Ctx): { state: FloorState; orderId: string } {
+export function openTakeaway(s: FloorState, inp: { customerName?: string; id?: string }, c: Ctx): { state: FloorState; orderId: string } {
   floorStaff(c)
   const [h, m] = s.settings.businessDayStart.split(':').map(Number)
   const OFFSET = 7 * 3600_000
@@ -175,7 +179,7 @@ export function openTakeaway(s: FloorState, inp: { customerName?: string }, c: C
   if (c.now.getTime() < start) start -= 86400_000
   const today = s.orders.filter(o => o.kind === 'takeaway' && new Date(o.openedAt).getTime() >= start)
   const no = Math.max(0, ...today.map(o => o.takeawayNo ?? 0)) + 1
-  const o = blankOrder(c, { kind: 'takeaway', takeawayNo: no, customerName: (inp.customerName ?? '').trim().slice(0, 40) })
+  const o = blankOrder(c, { ...(inp.id ? { id: inp.id } : {}), kind: 'takeaway', takeawayNo: no, customerName: (inp.customerName ?? '').trim().slice(0, 40) })
   return { state: { ...s, orders: [...s.orders, o] }, orderId: o.id }
 }
 
@@ -809,7 +813,7 @@ export interface PayInput {
   /** Token from verify_manager_pin for a discount by a cashier (bound to the order and the amount). */
   approval?: string
   /** Amounts add up to the total; cash may carry `tendered` above its amount (change). */
-  payments: (PaymentInput & { ref?: string })[]
+  payments: (PaymentInput & { ref?: string; bankAccount?: BankAccount | null })[]
   register?: string
 }
 
@@ -854,7 +858,7 @@ export function payOrder(s: FloorState, orderId: string, inp: PayInput, c: Ctx):
     vatAdded: bill.vatAdded, vatTotal: bill.vatTotal, rounding: bill.rounding, total: bill.total, vatLines: bill.vat,
     payments: inp.payments.map(p => ({
       id: c.newId(), method: p.method, amount: p.amount, tendered: p.method === 'cash' && p.tendered != null && p.tendered > p.amount ? p.tendered : null,
-      ref: (p.ref ?? '').trim().slice(0, 40), receivedBy: c.actor.name, receivedAt: t,
+      ref: (p.ref ?? '').trim().slice(0, 40), bankAccount: p.method === 'bank' ? (p.bankAccount ?? null) : null, receivedBy: c.actor.name, receivedAt: t,
     })),
     cashier: c.actor.name, paidAt: t, shiftId: shift.id, printCount: 0, lastPrintAt: null, lastPrintBy: '',
   }
@@ -999,17 +1003,48 @@ export function adminDelete(s: FloorState, kind: FloorDeleteKind, id: string, c:
 /** Cài đặt → Thanh toán: at least one payment method, a bank account for transfers, a whole VAT % from 0 to 100. */
 export function checkPaymentSettings(p: PaymentSettings): PaymentSettings {
   if (!Object.values(p.payMethods).some(Boolean)) fail('Bật ít nhất một phương thức thanh toán')
-  const bankAccount = p.bankAccount.replace(/\s/g, '')
-  const bankBin = p.bankBin.trim()
-  if (p.payMethods.bank) {
-    if (!/^\d{6}$/.test(bankBin)) fail('Mã ngân hàng (BIN) gồm 6 chữ số')
-    if (!/^[0-9A-Za-z]{4,19}$/.test(bankAccount)) fail('Nhập số tài khoản nhận chuyển khoản')
-  }
+  const bankAccounts = p.bankAccounts.map((a, i) => {
+    const which = p.bankAccounts.length > 1 ? ` (tài khoản ${i + 1})` : ''
+    const bin = a.bin.trim()
+    const account = a.account.replace(/\s/g, '')
+    if (!/^\d{6}$/.test(bin)) fail('Mã ngân hàng (BIN) gồm 6 chữ số' + which)
+    if (!/^[0-9A-Za-z]{4,19}$/.test(account)) fail('Nhập số tài khoản nhận chuyển khoản' + which)
+    return { id: a.id.trim() || `tk-${i + 1}`, bin, bankName: a.bankName.trim(), account, holder: a.holder.trim().toUpperCase() }
+  })
+  if (p.payMethods.bank && !bankAccounts.length) fail('Thêm ít nhất một tài khoản nhận chuyển khoản')
+  if (new Set(bankAccounts.map(a => a.id)).size < bankAccounts.length) fail('Mã tài khoản bị trùng')
+  if (new Set(bankAccounts.map(a => `${a.bin}:${a.account}`)).size < bankAccounts.length) fail('Có hai tài khoản trùng ngân hàng và số tài khoản')
   if (p.vatRate !== null && (!Number.isInteger(p.vatRate) || p.vatRate < 0 || p.vatRate > 100)) fail('Thuế suất là số nguyên từ 0 đến 100%')
-  return { ...p, bankBin, bankAccount, bankName: p.bankName.trim(), bankAccountName: p.bankAccountName.trim().toUpperCase() }
+  return { ...p, bankAccounts }
+}
+
+/** The shop with these settings; bankBin… mirror the default account (receipts, devices on an older build). */
+export function withPaymentSettings(shop: ShopProfile, p: PaymentSettings): ShopProfile {
+  const d = p.bankAccounts[0]
+  return {
+    ...shop,
+    payMethods: p.payMethods, vatRate: p.vatRate, showVat: p.showVat, bankAccounts: p.bankAccounts,
+    bankBin: d?.bin ?? '', bankName: d?.bankName ?? '', bankAccount: d?.account ?? '', bankAccountName: d?.holder ?? '',
+  }
 }
 
 export function saveShop(s: FloorState, p: PaymentSettings, c: Ctx): FloorState {
   need(c, 'settings.edit')
-  return { ...s, shop: { ...s.shop, ...checkPaymentSettings(p) } }
+  return { ...s, shop: withPaymentSettings(s.shop, checkPaymentSettings(p)) }
+}
+
+/** Cài đặt → Mẫu in: a shop name, short header lines, a template with every field valid. */
+export function checkReceiptSettings(p: ReceiptSettings): ReceiptSettings {
+  const name = p.name.trim()
+  if (!name) fail('Nhập tên quán')
+  if (name.length > 60) fail('Tên quán tối đa 60 ký tự')
+  for (const [label, v] of [['Địa chỉ', p.address], ['Điện thoại', p.phone], ['Mã số thuế', p.taxCode], ['Lời cảm ơn', p.footer]] as const)
+    if (v.length > TEXT_MAX) fail(`${label} tối đa ${TEXT_MAX} ký tự`)
+  return { name, address: p.address.trim(), phone: p.phone.trim(), taxCode: p.taxCode.trim(), footer: p.footer.trim(), template: receiptTemplate(p.template) }
+}
+
+export function saveReceipt(s: FloorState, p: ReceiptSettings, c: Ctx): FloorState {
+  need(c, 'settings.edit')
+  const { template, ...head } = checkReceiptSettings(p)
+  return { ...s, shop: { ...s.shop, ...head, receiptTemplate: template } }
 }

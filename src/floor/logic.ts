@@ -140,6 +140,22 @@ export function kitchenLines(l: Line): KitchenLine[] {
 /** Every part at every station, for timers, chase and dishes to carry out. */
 export const allKitchenLines = (s: FloorState, f: (l: Line) => boolean = () => true): KitchenLine[] => s.lines.filter(f).flatMap(kitchenLines)
 
+/** Kitchen progress of orders, for the tag on order cards and table tiles: null until a dish is sent. */
+export type Progress = 'waiting' | 'cooking' | 'done'
+export const PROGRESS_LABEL: Record<Progress, string> = { waiting: 'Chờ làm', cooking: 'Đang làm', done: 'Đã làm xong' }
+
+/**
+ * Đang làm once any part at any station is started; Chờ làm while the rest still waits and none is started;
+ * Đã làm xong once every one is Xong or Đã bưng.
+ */
+export function orderProgress(s: FloorState, orderIds: Iterable<string>): Progress | null {
+  const ids = new Set(orderIds)
+  const parts = allKitchenLines(s, l => ids.has(l.orderId) && l.status !== 'void' && !l.replacedBy)
+  if (!parts.length) return null
+  if (parts.some(l => l.status === 'cooking')) return 'cooking'
+  return parts.some(isUnfinished) ? 'waiting' : 'done'
+}
+
 // ---------------------------------------------------------------- tables on the floor map
 
 export interface TableTile {
@@ -153,6 +169,8 @@ export interface TableTile {
   kitchenHeat: Heat | null
   /** Dishes done and waiting to be carried out. */
   readyCount: number
+  /** Đang làm / Đã làm xong over the table's orders. */
+  progress: Progress | null
   groupLabel: string
   overSeats: boolean
 }
@@ -187,6 +205,7 @@ export function tableTile(s: FloorState, t: Table, now: Date): TableTile {
     amount: orders.reduce((sum, o) => sum + orderAmount(s, o.id), 0),
     kitchenHeat,
     readyCount: lines.filter(l => l.status === 'ready' && (l.deliveryTableId === t.id || !l.deliveryTableId)).reduce((n, l) => n + l.qty, 0),
+    progress: orderProgress(s, ids),
     groupLabel: group ? groupLabel(s, group).replace('nhóm gộp', 'Gộp') : '',
     overSeats: guests > t.seats,
   }
@@ -298,11 +317,14 @@ export function buildTickets(s: FloorState, now: Date): Ticket[] {
   return out
 }
 
-/** On screen for a station ('all' = every kitchen and bar station): urgent first, then oldest first. */
-export function activeTickets(s: FloorState, menu: Menu, station: string, now: Date): Ticket[] {
+/**
+ * On screen for a station ('all' = every kitchen and bar station): urgent first, then oldest first. `built`: buildTickets(s,
+ * now) already made for this moment (the kitchen screen counts every station from one build each second).
+ */
+export function activeTickets(s: FloorState, menu: Menu, station: string, now: Date, built?: Ticket[]): Ticket[] {
   const prep = new Set(menu.stations.filter(x => x.kind !== 'none').map(x => x.id))
   const rank = (t: Ticket) => (t.notices.some(n => n.kind === 'void' || n.kind === 'modify') ? 0 : t.notices.some(n => n.kind === 'chase') ? 1 : t.rush ? 2 : 3)
-  return buildTickets(s, now)
+  return (built ?? buildTickets(s, now))
     .filter(t => !t.done && prep.has(t.stationId) && (station === 'all' || t.stationId === station))
     .sort((a, b) => rank(a) - rank(b) || a.sentAt.localeCompare(b.sentAt))
 }

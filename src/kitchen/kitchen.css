@@ -88,10 +88,12 @@
 .tl-opt { color: var(--k-yellow); font-weight: 700; }
 .tl-removal { color: var(--k-red); font-weight: 900; }
 .tl-addon { color: #0b7285; font-weight: 700; }
-.tl-note { font-style: italic; color: var(--k-muted); }
+.tl-note { font-style: italic; font-weight: 700; color: var(--k-red); }
 .tl-side-tag { font-size: .7em; font-weight: 700; color: var(--k-muted); text-transform: uppercase; }
 .tl-parts { font-weight: 900; }
-.tl-others { font-size: .8em; color: var(--k-muted); }
+.tl-others { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.tl-others .tl-state { margin-left: 0; font-size: .65em; }
+.tl-state.st-void { color: #fff; background: var(--k-red); }
 .tl-state { flex: none; margin-left: auto; align-self: flex-start; padding: 2px 8px; border-radius: 6px; font-size: .7em; font-weight: 800; background: #dbe2f1; color: var(--k-text); }
 .tl-state.st-cooking, .tl-state.st-ready { color: #fff; }
 .tl-state.st-cooking { background: var(--k-blue); }

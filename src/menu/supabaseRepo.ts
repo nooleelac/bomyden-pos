@@ -5,9 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { MenuRepo } from './repo'
 import type { Category, Menu, MenuItem, ModifierGroup, Station } from './types'
-
-// realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
-let channelNo = 0
+import { liveTables } from '../lib/live'
 
 type Row = Record<string, unknown>
 
@@ -32,10 +30,20 @@ const n = (v: unknown) => Number(v)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const sn = (v: unknown) => (v == null ? null : String(v))
 
+const MENU_KEYS = ['shop', 'stations', 'vat_groups', 'vat_rates', 'categories', 'items', 'variants', 'components', 'groups', 'options', 'links', 'overrides'] as const
+
 export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
-  async function load(): Promise<Menu> {
+  // one round trip (get_menu_state, 0016); a database without it yet answers with the 12 table reads
+  let oneCall = true
+  async function loadRows(): Promise<Row[][]> {
+    if (oneCall) {
+      const { data, error } = await db.rpc('get_menu_state')
+      if (!error && data) return MENU_KEYS.map(k => ((data as Record<string, Row[]>)[k] ?? []))
+      if (error && !/get_menu_state|PGRST202|schema cache/i.test(error.message)) throw new Error(error.message)
+      oneCall = false
+    }
     const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10)
-    const [shop, stations, vatGroups, vatRates, cats, items, variants, comps, groups, options, links, overrides] = await Promise.all([
+    return Promise.all([
       rows(db.from('shop_settings').select('prices_include_vat, business_day_start, min_price_ratio').limit(1)),
       rows(db.from('stations').select('*').eq('active', true).order('sort')),
       rows(db.from('vat_groups').select('*')),
@@ -49,6 +57,10 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
       rows(db.from('item_modifier_groups').select('*').order('sort')),
       rows(db.from('item_option_overrides').select('*')),
     ])
+  }
+
+  async function load(): Promise<Menu> {
+    const [shop, stations, vatGroups, vatRates, cats, items, variants, comps, groups, options, links, overrides] = await loadRows()
     const rateOf = (code: string) => n(vatRates.filter(r => r.vat_group === code).pop()?.rate ?? 0)
     return {
       settings: {
@@ -103,18 +115,7 @@ export function createSupabaseMenuRepo(db: SupabaseClient): MenuRepo {
     source: 'supabase',
     load,
     subscribe(onChange) {
-      let t: ReturnType<typeof setTimeout> | null = null
-      const fire = () => {
-        if (t) clearTimeout(t)
-        t = setTimeout(() => onChange(), 80) // one reload for a burst of row changes (a saved dish writes several tables)
-      }
-      const ch = db.channel(`menu-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
-      for (const table of MENU_TABLES) ch.on('postgres_changes', { event: '*', schema: 'public', table }, fire)
-      ch.subscribe()
-      return () => {
-        if (t) clearTimeout(t)
-        void db.removeChannel(ch)
-      }
+      return liveTables(db, 'menu-changes', MENU_TABLES, () => onChange(), 300_000)
     },
     async saveCategory(c) {
       await ok(db.from('menu_categories').upsert(categoryRow(c)))

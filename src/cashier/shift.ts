@@ -1,7 +1,7 @@
 // Shift (ca thu ngân) totals. Pure; the same sums run in SQL (shift_summary in 0005_cashier.sql): keep both in step.
 
 import type { PayMethod } from '../lib/billing'
-import type { Bill, Shift } from '../floor/types'
+import type { BankAccount, Bill, Payment, Shift } from '../floor/types'
 
 /** Vietnamese notes a cashier counts at close (coins are not in use). */
 export const DENOMINATIONS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000] as const
@@ -17,6 +17,8 @@ export interface ShiftSummary {
   sales: number
   vatTotal: number
   byMethod: Record<PayMethod, number>
+  /** Transfers by the account they went to. */
+  byBank: BankRow[]
   /** Cash handed over by guests, and what went back as change (for information). */
   cashTendered: number
   changeGiven: number
@@ -54,11 +56,39 @@ export function shiftSummary(shift: Pick<Shift, 'id' | 'openingFloat'>, bills: B
     sales: sum(b => b.total),
     vatTotal: sum(b => b.vatTotal),
     byMethod,
+    byBank: bankTotals(mine),
     cashTendered,
     changeGiven,
     openingFloat: shift.openingFloat,
     expectedCash: shift.openingFloat + byMethod.cash,
   }
+}
+
+/** Transfers into one account (bank null: paid before the account was recorded). */
+export interface BankRow {
+  key: string
+  bank: BankAccount | null
+  amount: number
+  count: number
+}
+
+/** Transfers of these bills by account (bank and number), most money first; unknown accounts last. */
+export function bankTotals(bills: Bill[]): BankRow[] {
+  const rows = new Map<string, BankRow>()
+  const add = (p: Payment) => {
+    const key = p.bankAccount ? `${p.bankAccount.bin}:${p.bankAccount.account}` : ''
+    const r = rows.get(key) ?? { key, bank: p.bankAccount ?? null, amount: 0, count: 0 }
+    r.amount += p.amount
+    r.count++
+    rows.set(key, r)
+  }
+  for (const b of bills) for (const p of b.payments) if (p.method === 'bank') add(p)
+  return [...rows.values()].sort((a, b) => Number(!a.bank) - Number(!b.bank) || b.amount - a.amount)
+}
+
+/** "VPBank · 1234567902 · NGUYEN VAN A", or "Chưa rõ tài khoản" for transfers before the account was recorded. */
+export function bankRowLabel(r: BankRow): string {
+  return r.bank ? [r.bank.bankName || r.bank.bin, r.bank.account, r.bank.holder].filter(Boolean).join(' · ') : 'Chưa rõ tài khoản'
 }
 
 /** Total of a count by note: { "500000": 3, "10000": 2 } → 1.520.000. Unknown notes and bad counts are refused. */

@@ -1,8 +1,10 @@
 // #/cai-dat: one card per setup screen the signed-in role may open (Ca, Thực đơn, Bàn, Thanh toán, Nhân viên).
 // The top bar itself only carries the three work screens (Sơ đồ bàn, Bếp, Thu ngân).
 // #/cai-dat/thanh-toan: payment methods, bank account, VAT (PaymentSettings).
+// #/cai-dat/may-in: this device's receipt printer (PrintSettings).
+// #/cai-dat/mau-in: the shop's receipt words and sizes (ReceiptTemplateSettings).
 
-import { useCallback, useContext, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
 import { useAuth } from '../auth/context'
 import { settingsFor } from '../auth/guards'
@@ -13,6 +15,8 @@ import '../menu/menu.css'
 import '../floor/floor.css'
 import '../auth/auth.css'
 import { PaymentSettings } from './PaymentSettings'
+import { PrintSettingsPage } from './PrintSettings'
+import { ReceiptTemplateSettings } from './ReceiptTemplateSettings'
 import './settings.css'
 
 export function SettingsApp() {
@@ -20,6 +24,13 @@ export function SettingsApp() {
   const route = useRoute()
   const repos = useContext(ReposContext)
   if (route[1] === 'thanh-toan' && repos) return <PaymentPage repo={repos.floor} />
+  if (route[1] === 'may-in' && repos) return <PrintSettingsPage repo={repos.floor} />
+  if (route[1] === 'mau-in' && repos)
+    return (
+      <PaymentPage repo={repos.floor}>
+        {(floor, onError, onInfo) => <ReceiptTemplateSettings floor={floor} repo={repos.floor} onError={onError} onInfo={onInfo} />}
+      </PaymentPage>
+    )
   const items = settingsFor(session.role)
   return (
     <div className="menu-app floor-app">
@@ -44,7 +55,8 @@ export function SettingsApp() {
   )
 }
 
-function PaymentPage(props: { repo: FloorRepo }) {
+/** A settings page that needs the floor state (shop settings), with a toast; Thanh toán unless children say otherwise. */
+function PaymentPage(props: { repo: FloorRepo; children?: (floor: FloorState, onError: (m: string) => void, onInfo: (m: string) => void) => ReactNode }) {
   const [toast, setToast] = useState<{ text: string; ok?: boolean } | null>(null)
   const onError = useCallback((m: string) => setToast({ text: m }), [])
   const onInfo = useCallback((m: string) => setToast({ text: m, ok: true }), [])
@@ -58,7 +70,7 @@ function PaymentPage(props: { repo: FloorRepo }) {
     <div className="menu-app floor-app">
       <TopBar />
       <SettingsBack />
-      <main className="settings-main">{floor ? <PaymentSettings floor={floor} repo={props.repo} onError={onError} onInfo={onInfo} /> : <p className="muted">Đang tải…</p>}</main>
+      <main className="settings-main">{floor ? (props.children ? props.children(floor, onError, onInfo) : <PaymentSettings floor={floor} repo={props.repo} onError={onError} onInfo={onInfo} />) : <p className="muted">Đang tải…</p>}</main>
       {toast && (
         <div className={'toast' + (toast.ok ? ' toast-ok' : '')} role={toast.ok ? 'status' : 'alert'} onClick={() => setToast(null)}>
           {toast.text}

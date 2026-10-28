@@ -8,7 +8,22 @@
   --st-closed: #d6dcea;
   --late: #e5383b;
   --warnc: #f9a825;
+  --pg-waiting: #d6336c;
+  /* the kitchen's Đang làm (kitchen.css --k-blue) */
+  --pg-cooking: #0a84ff;
+  --pg-done: #2b8a3e;
 }
+
+/* Chờ làm / Đang làm / Đã làm xong: small tag, and the tile / card takes its colour (rules at the end of the file: over Chờ thanh toán, under Đang thanh toán) */
+.progress-tag { display: inline-block; margin-left: auto; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; line-height: 1.5; color: #fff; white-space: nowrap; }
+.progress-tag.pg-waiting { background: var(--pg-waiting); }
+.progress-tag.pg-cooking { background: var(--pg-cooking); }
+.progress-tag.pg-done { background: var(--pg-done); }
+.table-tile .progress-tag { margin: 4px 0 0; background: rgba(255,255,255,.24); }
+.order-pick .progress-tag { margin-left: 8px; vertical-align: 2px; }
+.order-pick.pg-waiting { border-left: 3px solid var(--pg-waiting); padding-left: 8px; }
+.order-pick.pg-cooking { border-left: 3px solid var(--pg-cooking); padding-left: 8px; }
+.order-pick.pg-done { border-left: 3px solid var(--pg-done); padding-left: 8px; }
 
 /* app frame: ☰ + shop name + who, tab bar at the bottom, drawer */
 .topbar-menu { flex: none; width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; color: var(--text); font-size: 24px; line-height: 1; }
@@ -283,3 +298,18 @@
 .table-edit .field { margin: 0; flex: 1 1 120px; }
 .table-edit .field:has(.w-qty) { flex: 0 0 auto; }
 .area-edit { align-items: flex-end; } .area-edit .field { flex: 1; min-width: 160px; }
+
+/* Chờ làm / Đang làm / Đã làm xong colour wins over Chờ thanh toán, the same on Bàn and Đơn (kept last so it overrides) */
+.table-tile.pg-waiting { background: var(--pg-waiting); color: #fff; }
+.table-tile.pg-cooking { background: var(--pg-cooking); color: #fff; }
+.table-tile.pg-done { background: var(--pg-done); color: #fff; }
+.order-card.pg-waiting { border-top-color: var(--pg-waiting); }
+.order-card.pg-cooking { border-top-color: var(--pg-cooking); }
+.order-card.pg-done { border-top-color: var(--pg-done); }
+.order-card.pg-waiting .order-card-tag { background: var(--pg-waiting); }
+.order-card.pg-cooking .order-card-tag { background: var(--pg-cooking); }
+.order-card.pg-done .order-card-tag { background: var(--pg-done); }
+/* Đang thanh toán stays purple over the kitchen colour: the cashier has the bill open */
+.table-tile.st-paying { background: var(--st-paying); }
+.order-card.st-paying { border-top-color: var(--st-paying); }
+.order-card.st-paying .order-card-tag { background: var(--st-paying); }

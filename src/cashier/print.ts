@@ -1,8 +1,12 @@
-// Receipt blocks → a print-ready HTML page for an 80mm thermal printer, printed with window.print from a hidden
-// iframe (the browser's print dialog; pick the receipt printer once and tick "Background graphics" off).
-// 48 monospace characters fill the 72mm printable width: font-size 2.5mm × 0.6 advance × 48 = 72mm.
+// Receipt blocks → a print-ready HTML page for an 80mm or 58mm thermal printer (Cài đặt → Máy in, paper.ts), printed with window.print
+// from a hidden iframe (the browser's print dialog; pick the receipt printer once, paper size = the roll, scale 100%).
+// The monospace grid fills the printable width: font-size × 0.6 advance × characters per line (printSpec).
 
 import QRCode from 'qrcode'
+import { escposReceipt } from './escpos'
+import { getPrintSettings, printSpec, type PrintSettings } from './paper'
+import { sendBluetooth } from './printers/bluetooth'
+import { sendNetwork } from './printers/network'
 import type { Block } from './receipt'
 
 /** QR code as an inline SVG (no network, prints sharp at any size). */
@@ -18,41 +22,50 @@ export function qrSvg(payload: string, label = 'Mã VietQR'): string {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-export const RECEIPT_CSS = `
-@page { size: 80mm auto; margin: 0; }
+export function receiptCss(settings: PrintSettings = getPrintSettings()): string {
+  const { mm, printMm, cols, fontMm, bold, feedMm } = printSpec(settings)
+  return `
+@page { size: ${mm}mm auto; margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #fff; color: #000; }
-body { width: 80mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { width: ${mm}mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .r {
-  width: 72mm; margin: 0 auto; padding: 2mm 0 8mm;
+  width: ${printMm}mm; margin: 0 auto; padding: 2mm 0 ${feedMm}mm;
   font-family: 'Liberation Mono', 'Noto Sans Mono', Consolas, 'Courier New', 'DejaVu Sans Mono', monospace;
-  font-size: 2.5mm; line-height: 1.3; font-variant-ligatures: none;
+  font-size: ${fontMm}mm; line-height: 1.3; font-weight: ${bold ? 700 : 400}; font-variant-ligatures: none;
 }
 .l { white-space: pre; overflow: hidden; min-height: 1.3em; }
 .b { font-weight: 700; }
-.big { font-size: 5mm; line-height: 1.25; font-weight: 700; }
+.big { line-height: 1.2; }
 .qr { display: flex; justify-content: center; padding: 1.5mm 0; }
 .qr svg { width: 36mm; height: 36mm; }
 @media screen {
   body { width: auto; }
-  .r { width: calc(48ch + 32px); padding: 16px; font-size: 13px; }
-  .big { font-size: 26px; }
+  .r { width: calc(${cols}ch + 32px); padding: 16px; font-size: 13px; }
   .qr svg { width: 168px; height: 168px; }
 }
 `
+}
+
+/** One text line; a larger part sets its size in em of the base text, so its narrower grid still fills the width. */
+function line(b: Extract<Block, { kind: 'text' }>): string {
+  const size = b.size ?? (b.big ? 2 : 1)
+  const cls = 'l' + (b.bold || (b.big && b.bold !== false) ? ' b' : '') + (size > 1 ? ' big' : '')
+  return `<div class="${cls}"${size !== 1 ? ` style="font-size:${size}em"` : ''}>${esc(b.text.normalize('NFC'))}</div>`
+}
 
 export function receiptBody(blocks: Block[]): string {
   return blocks
     .map(b =>
       b.kind === 'qr'
         ? `<div class="qr">${qrSvg(b.payload)}</div>`
-        : `<div class="l${b.bold ? ' b' : ''}${b.big ? ' big' : ''}">${esc(b.text.normalize('NFC'))}</div>`,
+        : line(b),
     )
     .join('\n')
 }
 
 export function receiptHtml(blocks: Block[], title = 'Hoá đơn'): string {
-  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${RECEIPT_CSS}</style></head><body><div class="r">${receiptBody(blocks)}</div></body></html>`
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${receiptCss()}</style></head><body><div class="r">${receiptBody(blocks)}</div></body></html>`
 }
 
 /** Print through a hidden iframe so the app screen stays as it is. Resolves once the dialog is done (or after 60 s). */
@@ -88,6 +101,12 @@ export function printHtml(html: string): Promise<void> {
   })
 }
 
-export function printBlocks(blocks: Block[], title?: string): Promise<void> {
-  return printHtml(receiptHtml(blocks, title))
+/** Prints on this device's printer (Cài đặt → Máy in): the print dialog, or straight to a Bluetooth / WiFi printer. */
+export async function printBlocks(blocks: Block[], title = 'Hoá đơn'): Promise<void> {
+  const s = getPrintSettings()
+  const t = s.target
+  if (t.kind === 'dialog') return printHtml(receiptHtml(blocks, title))
+  const data = escposReceipt(blocks, s)
+  if (t.kind === 'bluetooth') return sendBluetooth(t.id, data)
+  return sendNetwork(t.agentId, t.host, t.port, data, title)
 }

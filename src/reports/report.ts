@@ -3,6 +3,7 @@
 
 import type { PayMethod } from '../lib/billing'
 import type { Bill, BillHistory } from '../floor/types'
+import { bankTotals, type BankRow } from '../cashier/shift'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const minutesOf = (hhmm: string) => {
@@ -112,6 +113,8 @@ export interface Revenue {
   rounding: number
   average: number
   byMethod: Record<PayMethod, number>
+  /** Transfers by the account they went to. */
+  byBank: BankRow[]
   /** Every business day of the range, empty ones included. */
   byDay: DayRow[]
   /** Clock hour 0–23 of payment. */
@@ -164,6 +167,7 @@ export function revenue(h: BillHistory, fromDay: string, toDay: string, dayStart
     rounding: sum(b => b.rounding),
     average: h.bills.length ? Math.round(sales / h.bills.length) : 0,
     byMethod,
+    byBank: bankTotals(h.bills),
     byDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
     byHour,
     byCashier: [...cashiers.values()].sort((a, b) => b.sales - a.sales),

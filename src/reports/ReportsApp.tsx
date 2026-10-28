@@ -5,7 +5,7 @@
 //                      dishes, cashiers, CSV
 // Bills come from FloorRepo.billHistory (the floor state only keeps the last hours).
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import '../menu/menu.css'
 import '../floor/floor.css'
 import './reports.css'
@@ -20,6 +20,7 @@ import type { FloorRepo } from '../floor/repo'
 import type { Bill, BillHistory, FloorState } from '../floor/types'
 import type { MenuRepo } from '../menu/repo'
 import { billSummary, receiptTableTitle } from '../cashier/bill'
+import { bankRowLabel } from '../cashier/shift'
 import {
   PRESET_LABEL,
   addDays,
@@ -518,7 +519,7 @@ function Bars(props: { rows: { key: string; label: string; value: number; note?:
 }
 
 function MethodBar(props: { rev: Revenue }) {
-  const { byMethod } = props.rev
+  const { byMethod, byBank } = props.rev
   const total = METHODS.reduce((t, m) => t + byMethod[m], 0)
   if (!total) return <p className="empty">Chưa có tiền thu.</p>
   return (
@@ -530,13 +531,24 @@ function MethodBar(props: { rev: Revenue }) {
       </div>
       <ul className="method-list">
         {METHODS.map(m => (
-          <li key={m}>
-            <span>
-              <span className={`dot m-${m}`} aria-hidden /> {METHOD_LABEL[m]}
-            </span>
-            <span className="muted">{Math.round((byMethod[m] / total) * 100)}%</span>
-            <b>{formatVnd(byMethod[m])}</b>
-          </li>
+          <Fragment key={m}>
+            <li>
+              <span>
+                <span className={`dot m-${m}`} aria-hidden /> {METHOD_LABEL[m]}
+              </span>
+              <span className="muted">{Math.round((byMethod[m] / total) * 100)}%</span>
+              <b>{formatVnd(byMethod[m])}</b>
+            </li>
+            {/* transfers by the account they went to, for checking each bank app at day end */}
+            {m === 'bank' &&
+              byBank.map(r => (
+                <li key={r.key} className="method-sub">
+                  <span>{bankRowLabel(r)}</span>
+                  <span className="muted">{r.count} lần</span>
+                  <b>{formatVnd(r.amount)}</b>
+                </li>
+              ))}
+          </Fragment>
         ))}
       </ul>
     </>

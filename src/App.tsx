@@ -7,15 +7,13 @@ import { useAuth } from './auth/context'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './auth/memoryRepo'
 import type { AuthRepo } from './auth/repo'
 import { staffFetch } from './auth/token'
-import { CashierApp } from './cashier/CashierApp'
 import { FloorApp } from './floor/FloorApp'
 import { peekSource, ReposContext, session, useRoute } from './floor/hooks'
 import { createMemoryFloorRepo, type FloorRepo } from './floor/repo'
 import { sampleBillHistory, sampleEvening } from './floor/seed'
 import type { BillHistory } from './floor/types'
-import { MenuApp } from './menu/MenuApp'
-import { SettingsApp } from './settings/SettingsApp'
 import { setPushClient } from './push/push'
+import { setPrintClient } from './cashier/printers/network'
 import { createMemoryMenuRepo, type MenuRepo } from './menu/repo'
 import { seedMenu } from './menu/seed'
 import type { Menu } from './menu/types'
@@ -36,6 +34,9 @@ const authFromDb = (env.VITE_AUTH_SOURCE === 'supabase' || menuFromDb || floorFr
 const StaffApp = lazy(() => import('./auth/StaffApp').then(m => ({ default: m.StaffApp })))
 const KitchenApp = lazy(() => import('./kitchen/KitchenApp').then(m => ({ default: m.KitchenApp })))
 const ReportsApp = lazy(() => import('./reports/ReportsApp').then(m => ({ default: m.ReportsApp })))
+const CashierApp = lazy(() => import('./cashier/CashierApp').then(m => ({ default: m.CashierApp })))
+const MenuApp = lazy(() => import('./menu/MenuApp').then(m => ({ default: m.MenuApp })))
+const SettingsApp = lazy(() => import('./settings/SettingsApp').then(m => ({ default: m.SettingsApp })))
 
 interface Repos {
   menu: MenuRepo
@@ -50,6 +51,7 @@ async function connect(): Promise<Repos> {
     // the device is the Supabase user; the person signed in with a PIN rides on every request (x-staff-session)
     db = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY, { global: { fetch: staffFetch } })
     setPushClient(db)
+    setPrintClient(db, env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY)
   }
   const sampleAuth = authFromDb ? null : createMemoryAuthRepo({ sync: { storageKey: 'bmd-auth-v1', sessionKey: 'bmd-auth-session', channel: 'bmd-auth' } })
   const auth = sampleAuth ?? (await import('./auth/supabaseRepo')).createSupabaseAuthRepo(db!)

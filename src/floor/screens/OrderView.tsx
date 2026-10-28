@@ -116,24 +116,32 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
       throw e
     }
   }
-  // Lưu & gửi bếp: the dishes added since the last save go to the kitchen as one round, then back to Bàn
+  // Lưu & gửi bếp: the dishes added since the last save go to the kitchen as one round, then back to Bàn at once
+  // (the repo shows the round before the server answers). If the server refuses, the dishes go back into this
+  // order's stored cart, so opening the table again offers them for sending again.
   const save = () => {
     if (!drafts.length || saving) return
     setSaving(true)
-    send(drafts.map(d => d.state)).then(
-      () => {
-        setDrafts([])
-        setSaving(false)
-        // the cart effect won't run once we leave, so clear the stored cart here
-        try {
-          localStorage.removeItem(storageKey)
-        } catch {
-          /* ignore */
-        }
-        go('ban')
-      },
-      () => setSaving(false),
-    )
+    const sent = drafts
+    send(sent.map(d => d.state)).catch(() => {
+      try {
+        const now = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as typeof sent
+        localStorage.setItem(storageKey, JSON.stringify([...sent, ...now.filter(d => !sent.some(x => x.key === d.key))]))
+      } catch {
+        /* ignore */
+      }
+      setDrafts(prev => (prev.length ? prev : sent))
+      setSaving(false)
+    })
+    // the cart effect won't run once we leave, so clear the stored cart here
+    try {
+      localStorage.removeItem(storageKey)
+    } catch {
+      /* ignore */
+    }
+    setDrafts([])
+    setSaving(false)
+    go('ban')
   }
   const leave = () => (cartCount > 0 ? setDialog({ kind: 'leave' }) : go('ban'))
   const back = () => {

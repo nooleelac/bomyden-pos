@@ -72,3 +72,21 @@ describe('Quản lý in the menu', () => {
     expect(canOpen('cashier', ['doanh-thu'])).toBe(false)
   })
 })
+
+describe('transfers by account', () => {
+  it('adds transfers up by bank and number, most money first, unknown account last', () => {
+    const vp = { id: 'tk-1', bin: '970432', bankName: 'VPBank', account: '1234567902', holder: 'A' }
+    const mb = { id: 'tk-2', bin: '970422', bankName: 'MB Bank', account: '9999888877', holder: 'B' }
+    const to = (b: Bill, bankAccount: typeof vp | null) => ({ ...b, payments: b.payments.map(p => ({ ...p, bankAccount })) })
+    const bills = [
+      to(bill('1', at(2026, 10, 18, 12), 100000, 'bank'), vp),
+      to(bill('2', at(2026, 10, 18, 13), 300000, 'bank'), mb),
+      to(bill('3', at(2026, 10, 18, 14), 150000, 'bank'), { ...vp, id: 'renamed' }),
+      bill('4', at(2026, 10, 18, 15), 900000, 'bank'),
+      bill('5', at(2026, 10, 18, 16), 70000, 'cash'),
+    ]
+    const r = revenue({ bills, lines: [] }, '2026-10-18', '2026-10-18')
+    expect(r.byBank.map(x => [x.bank?.bankName ?? null, x.amount, x.count])).toEqual([['MB Bank', 300000, 1], ['VPBank', 250000, 2], [null, 900000, 1]])
+    expect(r.byBank.reduce((t, x) => t + x.amount, 0)).toBe(r.byMethod.bank)
+  })
+})

@@ -1,7 +1,7 @@
 // #/ca: mở ca (tiền đầu ca), totals of the open shift by payment method, count the cash by note,
-// expected vs counted, difference, chốt ca and the 80mm shift report (also reprint for closed shifts).
+// expected vs counted, difference, chốt ca and the shift report (also reprint for closed shifts).
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useAuth } from '../../auth/context'
 import { roleCan } from '../../auth/permissions'
 import { METHOD_LABEL, formatMoney, formatVnd, type PayMethod } from '../../lib/billing'
@@ -12,8 +12,9 @@ import type { FloorRepo } from '../../floor/repo'
 import type { FloorState, Shift } from '../../floor/types'
 import { fmtDate, shiftReportBlocks } from '../receipt'
 import { printBlocks } from '../print'
-import { DENOMINATIONS, countedTotal, openShiftOf, shiftSummary } from '../shift'
+import { DENOMINATIONS, bankRowLabel, countedTotal, openShiftOf, shiftSummary } from '../shift'
 import { MoneyInput, ReceiptPreview } from './ui'
+import { usePrintSettings } from '../paper'
 
 export function ShiftScreen(props: { floor: FloorState; repo: FloorRepo; me: string; now: Date; onError: (m: string) => void; onInfo: (m: string) => void }) {
   const { floor, repo } = props
@@ -112,6 +113,7 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
   const [count, setCount] = useState<Record<string, number>>({})
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  usePrintSettings() // re-lay out the report when the paper or text size changes
   const sum = useMemo(() => shiftSummary(shift, floor.bills), [shift, floor.bills])
   const counted = countedTotal(count)
   const touched = Object.values(count).some(n => n > 0)
@@ -181,10 +183,19 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
         <table className="method-table">
           <tbody>
             {(['cash', 'bank', 'card'] as PayMethod[]).map(m => (
-              <tr key={m}>
-                <th>{METHOD_LABEL[m]}</th>
-                <td>{formatMoney(sum.byMethod[m])}</td>
-              </tr>
+              <Fragment key={m}>
+                <tr>
+                  <th>{METHOD_LABEL[m]}</th>
+                  <td>{formatMoney(sum.byMethod[m])}</td>
+                </tr>
+                {m === 'bank' &&
+                  sum.byBank.map(r => (
+                    <tr key={r.key} className="method-sub">
+                      <th>{bankRowLabel(r)}</th>
+                      <td>{formatMoney(r.amount)}</td>
+                    </tr>
+                  ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -251,7 +262,7 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
           </button>
         </div>
       </section>
-      <section aria-label="Báo cáo ca 80mm">
+      <section aria-label="Báo cáo ca">
         <ReceiptPreview blocks={preview} title="Báo cáo ca" />
       </section>
     </div>
@@ -260,6 +271,7 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
 
 function ClosedShift(props: { floor: FloorState; shift: Shift; onBack: () => void; onDelete?: () => void; onError: (m: string) => void }) {
   const { floor, shift } = props
+  usePrintSettings()
   const blocks = shiftReportBlocks({
     shop: floor.shop, register: shift.register, openedBy: shift.openedBy, openedAt: shift.openedAt, closedBy: shift.closedBy, closedAt: shift.closedAt,
     summary: { ...shiftSummary(shift, floor.bills), expectedCash: shift.expectedCash ?? shiftSummary(shift, floor.bills).expectedCash },
@@ -286,7 +298,7 @@ function ClosedShift(props: { floor: FloorState; shift: Shift; onBack: () => voi
           </div>
         )}
       </section>
-      <section aria-label="Báo cáo ca 80mm">
+      <section aria-label="Báo cáo ca">
         <ReceiptPreview blocks={blocks} title="Báo cáo ca" />
       </section>
     </div>

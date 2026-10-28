@@ -5,8 +5,9 @@
 
 import { useRef, useState } from 'react'
 import { vnd } from '../../menu/picker'
-import { go, markQuickOpened } from '../hooks'
-import { areaTables, formatDuration, shortMinutes, openOrdersAt, orderAmount, orderLabel, orderTitle, tableTile, type TableTile } from '../logic'
+import { newId } from '../../menu/repo'
+import { go, markQuickOpened, readRoute, takeQuickOpened } from '../hooks'
+import { areaTables, formatDuration, shortMinutes, openOrdersAt, orderAmount, orderLabel, orderProgress, orderTitle, PROGRESS_LABEL, tableTile, type TableTile } from '../logic'
 import type { FloorRepo } from '../repo'
 import { TABLE_STATE_LABEL, type FloorState, type Order, type Role, type TableState } from '../types'
 import { GuestPicker, Sheet } from './Sheet'
@@ -43,17 +44,33 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
 
   // One tap on a free table opens it with its seat count as the guest count (editable on the order screen) and goes
   // straight to Gọi món. Gộp bàn / exact guest count: long-press (right-click) a free table for the full sheet.
+  // The device picks the new order's id, so the order screen opens at once (the repo shows the order before the
+  // server answers). Another device that opened the table first wins: its order is shown instead.
+  const openNow = (open: (id: string) => Promise<string>, quick: boolean) => {
+    const id = newId()
+    if (quick) markQuickOpened(id)
+    const p = open(id)
+    go(`ban/don/${id}`)
+    return p.then(
+      real => {
+        if (real === id) return
+        takeQuickOpened(id)
+        if (readRoute()[2] === id) go(`ban/don/${real}`)
+      },
+      e => {
+        takeQuickOpened(id)
+        fail(e)
+        if (readRoute()[2] === id) go('ban')
+      },
+    )
+  }
   const opening = useRef(false)
   const quickOpen = (t: TableTile) => {
     if (opening.current) return
     opening.current = true
-    repo
-      .openTable({ tableId: t.table.id, guestCount: Math.min(99, Math.max(1, t.table.seats || 1)) })
-      .then(id => {
-        markQuickOpened(id)
-        go(`ban/don/${id}`)
-      }, fail)
-      .finally(() => (opening.current = false))
+    openNow(id => repo.openTable({ tableId: t.table.id, guestCount: Math.min(99, Math.max(1, t.table.seats || 1)), id }), true).finally(
+      () => (opening.current = false),
+    )
   }
 
   const tap = (t: TableTile) => {
@@ -81,6 +98,8 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
     t.state === 'free' ? 'Bàn trống'
     : t.state === 'closed' ? 'Tạm đóng'
     : t.state === 'paying' ? 'Đang thanh toán'
+    // the Đang làm / Đã làm xong colour hides the orange, so say it
+    : t.state === 'bill' && t.progress ? 'Chờ thanh toán'
     : shortMinutes(now.getTime() - new Date(t.seatedSince!).getTime())
 
   return (
@@ -119,17 +138,23 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
               </header>
               {takeaways.length === 0 && <p className="muted small">Chưa có đơn mang về</p>}
               <ul className="rows">
-                {takeaways.map(o => (
+                {takeaways.map(o => {
+                  const pg = orderProgress(floor, [o.id])
+                  return (
                   <li key={o.id}>
-                    <a className="order-pick" href={`#/ban/don/${o.id}`}>
-                      <b>{orderTitle(floor, o)}</b>
+                    <a className={'order-pick' + (pg ? ` pg-${pg}` : '')} href={`#/ban/don/${o.id}`}>
+                      <b>
+                        {orderTitle(floor, o)}
+                        {pg && <span className={`progress-tag pg-${pg}`}>{PROGRESS_LABEL[pg]}</span>}
+                      </b>
                       <span className="muted small">
                         {since(o.openedAt)}
                         {` · ${vnd(orderAmount(floor, o.id))}`}
                       </span>
                     </a>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             </section>
           ) : (
@@ -145,8 +170,8 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
                     <li key={t.table.id}>
                       <button
                         type="button"
-                        className={`table-tile st-${t.state}`}
-                        aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}`}
+                        className={`table-tile st-${t.state}` + (t.progress ? ` pg-${t.progress}` : '')}
+                        aria-label={`Bàn ${t.table.name}: ${TABLE_STATE_LABEL[t.state]}` + (t.progress ? `, ${PROGRESS_LABEL[t.progress]}` : '')}
                         onClick={() => tap(t)}
                         onContextMenu={e => {
                           e.preventDefault()
@@ -157,6 +182,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
                         <b className="tile-name">{t.table.name}</b>
                         <span className="tile-sub">{tileSub(t)}</span>
                         {t.amount > 0 && <span className="tile-amount">{vnd(t.amount)}</span>}
+                        {t.progress && <span className={`progress-tag pg-${t.progress}`}>{PROGRESS_LABEL[t.progress]}</span>}
                       </button>
                     </li>
                   ))}
@@ -174,10 +200,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
           tableId={openFor}
           onClose={() => setOpenFor(null)}
           onOpen={(g, extra) =>
-            repo.openTable({ tableId: openFor, guestCount: g, extraTableIds: extra }).then(id => {
-              markQuickOpened(id)
-              go(`ban/don/${id}`)
-            }, fail)
+            openNow(id => repo.openTable({ tableId: openFor, guestCount: g, extraTableIds: extra, id }), true)
           }
         />
       )}
@@ -210,7 +233,7 @@ export function FloorMap(props: { floor: FloorState; repo: FloorRepo; now: Date;
           onCreate={inp => repo.addSharedOrder({ tableId: sharedFor, ...inp }).then(id => go(`ban/don/${id}`), fail)}
         />
       )}
-      {takeaway && <TakeawaySheet onClose={() => setTakeaway(false)} onCreate={name => repo.openTakeaway({ customerName: name }).then(id => go(`ban/don/${id}`), fail)} />}
+      {takeaway && <TakeawaySheet onClose={() => setTakeaway(false)} onCreate={name => openNow(id => repo.openTakeaway({ customerName: name, id }), false)} />}
     </div>
   )
 }

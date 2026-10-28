@@ -21,4 +21,47 @@
 .pay-methods li:first-child { border-top: 0; }
 .pay-settings .pick-group { border: 0; padding: 0; margin: 0 0 10px; }
 .pay-settings .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.bank-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 10px; }
+.bank-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--surface); }
+.bank-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.bank-card-actions { display: flex; gap: 8px; }
+.tag-default { margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .pay-settings-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 12px 0 24px; }
+
+/* Cài đặt → Máy in */
+.print-settings-cols { display: grid; gap: 16px; }
+@media (min-width: 900px) { .print-settings-cols { grid-template-columns: minmax(0, 1fr) 420px; align-items: start; } }
+.print-settings .pick-group { border: 0; padding: 0; margin: 0 0 14px; }
+.print-settings .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.print-settings .field-hint { display: block; margin-top: 4px; }
+.print-settings .switch { margin: 4px 0 14px; }
+.print-settings .input-unit input { max-width: 90px; }
+.print-steps { margin: 0 0 8px; padding-left: 22px; line-height: 1.6; }
+
+/* Cài đặt → Mẫu in */
+.tpl-part { padding: 10px 0; border-top: 1px solid var(--line); }
+.tpl-part:first-of-type { border-top: 0; padding-top: 0; }
+.tpl-part textarea { width: 100%; resize: vertical; font: inherit; }
+.tpl-style { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 6px; }
+.tpl-style .chip-row { margin-top: 0; }
+.tpl-settings .switch { margin: 0; }
+.tpl-preview .chip-row { align-items: center; }
+@media (min-width: 900px) { .tpl-preview { position: sticky; top: 12px; } }
+
+/* Cài đặt → Máy in → Kết nối máy in */
+.printer-now { margin: 10px 0 6px; }
+.printer-panel { display: grid; gap: 10px; margin-top: 6px; }
+.printer-panel > .btn { justify-self: start; }
+.printer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.printer-row.is-on { border-color: var(--accent); background: var(--bg); }
+.hint-list { margin: 0; padding-left: 20px; line-height: 1.6; }
+.agent-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.agent-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.agent-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.agent-on { color: var(--ok, #2e7d32); font-weight: 600; }
+.manual-row { display: flex; gap: 8px; margin-top: 4px; }
+.manual-row input { flex: 1; min-width: 0; }
+.agent-add summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.agent-code { display: grid; gap: 6px; margin-top: 6px; }
+.agent-code textarea { width: 100%; font-family: monospace; font-size: 12px; word-break: break-all; }
+.print-steps code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }

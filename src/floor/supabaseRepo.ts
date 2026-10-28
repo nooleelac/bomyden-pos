@@ -10,12 +10,10 @@ import { discountAmount, type PayMethod } from '../lib/billing'
 import type { VatGroup } from '../lib/pricing'
 import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
+import { liveTables } from '../lib/live'
 import * as E from './engine'
 import type { FloorRepo } from './repo'
-import type { Actor, Bill, FloorState, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
-
-// realtime channels need a fresh name per listener (the app frame and a screen may listen to the same tables)
-let channelNo = 0
+import type { Actor, BankAccount, Bill, FloorState, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
 
 type Row = Record<string, unknown>
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>
@@ -41,6 +39,12 @@ const n = (v: unknown) => Number(v ?? 0)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const idOf = (r: unknown) => s((r as Row | null)?.id)
 
+/** payments.bank_account (0020): the account a transfer went to, null for older rows. */
+function toBank(v: unknown): BankAccount | null {
+  const a = v as Row | null
+  return a && typeof a === 'object' ? { id: s(a.id), bin: s(a.bin), bankName: s(a.bank_name), account: s(a.account), holder: s(a.holder) } : null
+}
+
 /** A bills row with its payments; `name` turns a staff id into the name. */
 function billFromRow(b: Row, name: (id: unknown) => string): Bill {
   return {
@@ -49,7 +53,7 @@ function billFromRow(b: Row, name: (id: unknown) => string): Bill {
     total: n(b.total),
     vatLines: ((b.vat_lines as Row[] | null) ?? []).map((v): VatGroup => ({ vatRate: n(v.vat_rate), priceIncludesVat: v.price_includes_vat !== false, base: n(v.base), vat: n(v.vat) })),
     payments: ((b.payments as Row[] | null) ?? []).map(p => ({
-      id: s(p.id), method: p.method as PayMethod, amount: n(p.amount), tendered: nn(p.tendered), ref: s(p.ref),
+      id: s(p.id), method: p.method as PayMethod, amount: n(p.amount), tendered: nn(p.tendered), ref: s(p.ref), bankAccount: toBank(p.bank_account),
       receivedBy: name(p.received_by), receivedAt: s(p.received_at ?? b.paid_at),
     })),
     cashier: name(b.cashier_id), paidAt: s(b.paid_at), shiftId: sn(b.shift_id), printCount: n(b.print_count),
@@ -150,12 +154,17 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       shop: {
         name: s(sh.shop_name) || SAMPLE_SHOP.name, address: s(sh.address), phone: s(sh.phone), taxCode: s(sh.tax_code),
         bankBin: s(sh.bank_bin), bankName: s(sh.bank_name), bankAccount: s(sh.bank_account), bankAccountName: s(sh.bank_account_name),
+        // 0019: missing or empty = the one account above (bankAccounts() in cashier/config)
+        bankAccounts: ((sh.bank_accounts as Row[] | null) ?? []).map((a, i): BankAccount => ({
+          id: s(a.id) || `tk-${i + 1}`, bin: s(a.bin), bankName: s(a.bank_name), account: s(a.account), holder: s(a.holder),
+        })),
         footer: s(sh.receipt_footer), serviceChargePct: n(sh.service_charge_pct), roundingMode: sh.rounding_mode === 'nearest' ? 'nearest' : 'down',
         roundingUnit: n(sh.rounding_unit ?? 1000) || 1000,
         // 0014: missing columns (not migrated yet) read as all methods on, VAT by menu group, VAT printed
         payMethods: { cash: sh.pay_cash !== false, bank: sh.pay_bank !== false, card: sh.pay_card !== false },
         vatRate: sh.vat_rate == null ? null : n(sh.vat_rate),
         showVat: sh.show_vat_on_receipt !== false,
+        receiptTemplate: sh.receipt_template ?? undefined,
       },
       clockOffset,
     }
@@ -167,6 +176,9 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
   // one the sample floor runs) is applied to the last loaded state, and the state is reloaded as soon as the RPC
   // returns. A guess the engine refuses is skipped (the server gives the real error); an RPC error reloads too,
   // which takes the guess back. Realtime still brings every other device's changes.
+  // This device's calls go out one after another, so a dish sent right after "open table" (the screen opens before
+  // the server answers) reaches the server after the order exists.
+  let queue: Promise<unknown> = Promise.resolve()
   async function act<T>(run: () => Promise<T>, guess?: (st: FloorState, c: E.Ctx) => FloorState): Promise<T> {
     const menu = guess && cache ? opts.menu?.() : null
     if (guess && cache && menu) {
@@ -180,8 +192,10 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         /* the server decides */
       }
     }
+    const mine = queue.then(run, run)
+    queue = mine.catch(() => undefined)
     try {
-      return await run()
+      return await mine
     } finally {
       listeners.forEach(f => f())
     }
@@ -200,26 +214,24 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       return r[0] ? { name: s(r[0].name), role: r[0].role as Role } : null
     },
     subscribe(onChange) {
-      let t: ReturnType<typeof setTimeout> | null = null
-      const fire = () => {
-        if (t) clearTimeout(t)
-        t = setTimeout(() => onChange(), 80) // one reload for a burst of row changes
-      }
-      const ch = db.channel(`floor-changes-${++channelNo}`) // one channel per listener: a second .on() on a subscribed channel throws
-      for (const table of ['orders', 'order_items', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'shop_settings']) {
-        ch.on('postgres_changes', { event: '*', schema: 'public', table }, fire)
-      }
-      ch.subscribe()
+      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'shop_settings']
+      const off = liveTables(db, 'floor-changes', tables, () => onChange(), 15_000)
       listeners.add(onChange)
       return () => {
-        if (t) clearTimeout(t)
         listeners.delete(onChange)
-        void db.removeChannel(ch)
+        off()
       }
     },
-    openTable: inp => callId('open_table', { p_table: inp.tableId, p_guests: inp.guestCount, p_extra: inp.extraTableIds ?? [], p_label: inp.positionLabel ?? null }),
+    openTable: inp => {
+      const id = inp.id ?? newId()
+      const args = { p_table: inp.tableId, p_guests: inp.guestCount, p_extra: inp.extraTableIds ?? [], p_label: inp.positionLabel ?? null, p_id: id }
+      return act(() => rpc(db, 'open_table', args), (st, c) => E.openTable(st, { ...inp, id }, c).state).then(idOf)
+    },
     addSharedOrder: inp => callId('add_shared_order', { p_table: inp.tableId, p_guests: inp.guestCount, p_label: inp.positionLabel, p_existing: inp.existingLabels ?? {} }),
-    openTakeaway: inp => callId('open_takeaway', { p_customer: inp.customerName ?? '' }),
+    openTakeaway: inp => {
+      const id = inp.id ?? newId()
+      return act(() => rpc(db, 'open_takeaway', { p_customer: inp.customerName ?? '', p_id: id }), (st, c) => E.openTakeaway(st, { ...inp, id }, c).state).then(idOf)
+    },
     updateOrder(id, p) {
       const row: Row = {}
       if (p.guestCount !== undefined) row.guest_count = p.guestCount
@@ -271,7 +283,11 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       return callId('pay_order', {
         p_order: id,
         p_discount: amount,
-        p_payments: inp.payments.map(p => ({ method: p.method, amount: p.amount, ...(p.tendered != null ? { tendered: p.tendered } : {}), ref: p.ref ?? '' })),
+        p_payments: inp.payments.map(p => ({ method: p.method, amount: p.amount, ...(p.tendered != null ? { tendered: p.tendered } : {}), ref: p.ref ?? '',
+          ...(p.method === 'bank' && p.bankAccount
+            ? { bank_account: { id: p.bankAccount.id, bin: p.bankAccount.bin, bank_name: p.bankAccount.bankName, account: p.bankAccount.account, holder: p.bankAccount.holder } }
+            : {}),
+        })),
         p_discount_reason: inp.discountReason ?? null,
         p_register: inp.register ?? 'Quầy 1',
         p_approval: inp.approval ?? null,
@@ -304,11 +320,23 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     saveShop: p =>
       act(async () => {
         const v = E.checkPaymentSettings(p)
+        const d = v.bankAccounts[0]
         await ok(
           db.from('shop_settings').update({
             pay_cash: v.payMethods.cash, pay_bank: v.payMethods.bank, pay_card: v.payMethods.card,
             vat_rate: v.vatRate, show_vat_on_receipt: v.showVat,
-            bank_bin: v.bankBin, bank_name: v.bankName, bank_account: v.bankAccount, bank_account_name: v.bankAccountName,
+            // the default account also in the 0001 columns (devices on an older build read those)
+            bank_bin: d?.bin ?? '', bank_name: d?.bankName ?? '', bank_account: d?.account ?? '', bank_account_name: d?.holder ?? '',
+            bank_accounts: v.bankAccounts.map(a => ({ id: a.id, bin: a.bin, bank_name: a.bankName, account: a.account, holder: a.holder })),
+          }).eq('id', 1),
+        )
+      }),
+    saveReceipt: p =>
+      act(async () => {
+        const v = E.checkReceiptSettings(p)
+        await ok(
+          db.from('shop_settings').update({
+            shop_name: v.name, address: v.address, phone: v.phone, tax_code: v.taxCode, receipt_footer: v.footer, receipt_template: v.template,
           }).eq('id', 1),
         )
       }),

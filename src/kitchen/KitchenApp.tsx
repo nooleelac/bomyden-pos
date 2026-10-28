@@ -10,7 +10,7 @@ import type { MenuRepo } from '../menu/repo'
 import type { Menu } from '../menu/types'
 import { TopBar } from '../auth/chrome'
 import { errText, go, useLive, useNow, useRoute } from '../floor/hooks'
-import { activeTickets, allergyText, clock, doneTickets, kitchenLineKey, lineParts, tableTitle, type KitchenLine, type Ticket } from '../floor/logic'
+import { activeTickets, allergyText, buildTickets, clock, doneTickets, kitchenLineKey, lineParts, tableTitle, type KitchenLine, type Ticket } from '../floor/logic'
 import type { FloorRepo } from '../floor/repo'
 import { play, soundReady, unlockSound, type SoundKind } from '../floor/sound'
 import type { FloorState, LineStatus, Notice } from '../floor/types'
@@ -72,7 +72,9 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
   const code = route[1] ?? ''
   // #/bep or an unknown code: all stations (the rail on the left switches)
   const station = stations.find(s => s.code === code)?.id ?? 'all'
-  const tickets = useMemo(() => (floor && menu && station ? activeTickets(floor, menu, station, now) : []), [floor, menu, station, now])
+  // tickets are built once per tick and shared by the board, the rail counts and the alerts
+  const built = useMemo(() => (floor ? buildTickets(floor, now) : []), [floor, now])
+  const tickets = useMemo(() => (floor && menu && station ? activeTickets(floor, menu, station, now, built) : []), [floor, menu, station, now, built])
   // a narrow screen (phone, small tablet) shows fewer columns than set, so tickets stay readable
   const [width, setWidth] = useState(() => window.innerWidth)
   useEffect(() => {
@@ -82,7 +84,7 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
   }, [])
   const cols = Math.max(1, Math.min(prefs.columns, Math.floor((width - 150) / 210)))
 
-  useAlerts(floor, menu, station, now)
+  useAlerts(floor, menu, station, now, tickets)
 
   // tickets grow with their dishes (never clipped); the board scrolls when they run past the bottom of the screen
   const gridRef = useRef<HTMLElement | null>(null)
@@ -125,7 +127,7 @@ export function KitchenApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
   const stationName = station === 'all' ? 'Tất cả khu' : stations.find(s => s.id === station)?.name
   const done = showDone ? doneTickets(floor, station, now) : []
   const rail = [{ id: 'all', code: 'all', name: 'Tất cả' }, ...stations].map(s => {
-    const ts = activeTickets(floor, menu, s.id, now)
+    const ts = activeTickets(floor, menu, s.id, now, built)
     return { ...s, count: ts.length, late: ts.filter(t => t.heat === 'late').length }
   })
 
@@ -369,7 +371,11 @@ function TicketCard(props: {
                   {l.note && <span className="tl-note">✎ {l.note}</span>}
                   {l.others.length > 0 && l.status !== 'void' && (
                     <span className="tl-others">
-                      {l.others.map(o => `${props.menu.stations.find(s => s.id === o.stationId)?.name ?? 'Quầy khác'}: ${STATE_TEXT[o.status]}`).join(' · ')}
+                      {l.others.map(o => (
+                        <span key={o.stationId} className={`tl-state st-${o.status}`}>
+                          {props.menu.stations.find(s => s.id === o.stationId)?.name ?? 'Quầy khác'}: {STATE_TEXT[o.status]}
+                        </span>
+                      ))}
                     </span>
                   )}
                 </span>
@@ -389,12 +395,11 @@ function TicketCard(props: {
 const STATE_TEXT: Record<LineStatus, string> = { new: 'Chờ làm', cooking: 'Đang làm', ready: 'Xong', served: 'Đã bưng', void: 'HUỶ' }
 
 /** Sounds by event: new ticket, HUỶ, SỬA (repeat each minute until Đã biết), GIỤC, late (once per ticket), table moved. */
-function useAlerts(floor: FloorState | null, menu: Menu | null, station: string | null, now: Date) {
+function useAlerts(floor: FloorState | null, menu: Menu | null, station: string | null, now: Date, ts: Ticket[]) {
   const seen = useRef<{ tickets: Set<string>; notices: Set<string>; late: Set<string>; moved: Set<string> } | null>(null)
   const lastRepeat = useRef(0)
   useEffect(() => {
     if (!floor || !menu || !station) return
-    const ts = activeTickets(floor, menu, station, now)
     const notices = ts.flatMap(t => t.notices)
     const cur = {
       tickets: new Set(ts.map(t => t.key)),
@@ -423,5 +428,5 @@ function useAlerts(floor: FloorState | null, menu: Menu | null, station: string 
       }
     }
     kinds.forEach((k, i) => setTimeout(() => play(k), i * 1300))
-  }, [floor, menu, station, now])
+  }, [floor, menu, station, now, ts])
 }

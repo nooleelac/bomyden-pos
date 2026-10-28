@@ -2,7 +2,7 @@
 //   #/thu-ngan              open orders to settle, bills already paid (in lại), shift status
 //   #/thu-ngan/<orderId>    payment screen: bill with VAT by rate, discount, split payment, VietQR, change
 //   #/thu-ngan/hd/<billId>  receipt of a paid bill (print / reprint)
-//   #/ca                    open or close the cashier shift, count the cash, 80mm shift report
+//   #/ca                    open or close the cashier shift, count the cash, shift report
 
 import { useCallback, useEffect, useState } from 'react'
 import '../menu/menu.css'

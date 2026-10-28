@@ -13,18 +13,21 @@ import { errText, go } from '../../floor/hooks'
 import { isOpen, isUnfinished, orderTitle } from '../../floor/logic'
 import type { FloorRepo } from '../../floor/repo'
 import { GuestPicker, Sheet } from '../../floor/screens/Sheet'
-import type { FloorState, Order, Role } from '../../floor/types'
+import type { BankAccount, FloorState, Order, Role } from '../../floor/types'
 import { payMemo, prebillData, receiptGroups, vietQr } from '../bill'
-import { DISCOUNT_REASONS, enabledMethods } from '../config'
+import { DISCOUNT_REASONS, bankAccountFor, bankAccounts, enabledMethods } from '../config'
 import { printBlocks } from '../print'
 import { receiptBlocks } from '../receipt'
 import { MoneyInput, QrImage, ReceiptPreview } from './ui'
+import { usePrintSettings } from '../paper'
 
 interface UiRow extends PayRow {
   id: string
   ref?: string
   /** Share letter of a split bill (A, B, C…), also on the transfer memo. */
   part?: string
+  /** Transfer: the shop account the QR was shown for (Cài đặt → Thanh toán). */
+  bankId?: string
 }
 
 interface DiscountState {
@@ -53,6 +56,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
   const [disc, setDisc] = useState<DiscountState | null>(null)
   const [dialog, setDialog] = useState<null | 'discount' | 'split' | 'prebill' | { qr: string }>(null)
   const [busy, setBusy] = useState(false)
+  const { paper } = usePrintSettings() // the pre-bill is laid out for this paper and text size
   const fail = (e: unknown) => props.onError(errText(e))
   // Cài đặt → Thanh toán: only the methods the shop takes
   const methods = enabledMethods(floor.shop)
@@ -135,7 +139,10 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
     setBusy(true)
     leaving.current = true
     try {
-      const payments = st.payments.map((p, i) => ({ ...p, ref: rows[st.from[i]]?.ref ?? '' }))
+      const payments = st.payments.map((p, i) => {
+        const r = rows[st.from[i]]
+        return { ...p, ref: r?.ref ?? '', bankAccount: p.method === 'bank' ? (bankAccountFor(floor.shop, r?.bankId) ?? null) : null }
+      })
       const billId = await repo.payOrder(order.id, {
         discount: disc?.d ?? null,
         discountReason: disc?.reason,
@@ -204,7 +211,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
           <div className="add-pay" role="group" aria-label="Thêm cách trả">
             {methods.map(m => (
               <button key={m} type="button" className="btn" onClick={() => addRow(m)}>
-                + {METHOD_LABEL[m]}
+                {METHOD_LABEL[m]}
               </button>
             ))}
           </div>
@@ -286,7 +293,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
                       <span className="muted small">Nội dung: {memoFor(r)}</span>
                       {r.confirmed ? (
                         <span className="pay-ok">
-                          ✓ Đã nhận tiền{' '}
+                          ✓ Đã nhận tiền{bankAccounts(floor.shop).length > 1 && ` · ${bankShort(bankAccountFor(floor.shop, r.bankId))}`}{' '}
                           <button type="button" className="link small" onClick={() => setRow(r.id, { confirmed: false })}>
                             Huỷ xác nhận
                           </button>
@@ -357,18 +364,22 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
           order={order}
           amount={qrRow.amount}
           memo={memoFor(qrRow)}
+          bankId={qrRow.bankId}
           onClose={() => setDialog(null)}
-          onPrint={() => {
-            const data = prebillData(floor, order, totals, { at: new Date().toISOString(), cashier: props.me, discount: disc?.d, discountReason: disc?.reason, qrAmount: qrRow.amount, qrPart: qrRow.part })
+          onPrint={bankId => {
+            const data = prebillData(floor, order, totals, {
+              at: new Date().toISOString(), cashier: props.me, discount: disc?.d, discountReason: disc?.reason, qrAmount: qrRow.amount, qrPart: qrRow.part, qrBankId: bankId,
+            })
             printBlocks(receiptBlocks(data), 'Phiếu chuyển khoản').catch(fail)
           }}
-          onConfirm={() => (setRow(qrRow.id, { confirmed: true }), setDialog(null))}
+          onConfirm={bankId => (setRow(qrRow.id, { confirmed: true, bankId }), setDialog(null))}
         />
       )}
       {dialog === 'prebill' && (
         <PrebillSheet
           floor={floor}
           order={order}
+          paper={paper}
           blocks={receiptBlocks(
             prebillData(floor, order, totals, { at: new Date().toISOString(), cashier: props.me, discount: disc?.d, discountReason: disc?.reason, printNo: order.billPrintCount + 1 }),
           )}
@@ -587,9 +598,25 @@ function DiscountSheet(props: {
   )
 }
 
-function QrSheet(props: { floor: FloorState; order: Order; amount: number; memo: string; onClose: () => void; onPrint: () => void; onConfirm: () => void }) {
+/** "VPBank · 7902": an account on a chip. */
+const bankShort = (a?: BankAccount) => (a ? `${a.bankName || a.bin} · ${a.account.slice(-4)}` : '')
+
+function QrSheet(props: {
+  floor: FloorState
+  order: Order
+  amount: number
+  memo: string
+  bankId?: string
+  onClose: () => void
+  onPrint: (bankId?: string) => void
+  onConfirm: (bankId?: string) => void
+}) {
   const shop = props.floor.shop
-  const payload = vietQr(shop, props.amount, props.memo)
+  // the default account until the cashier picks another (Cài đặt → Thanh toán lists them)
+  const accounts = bankAccounts(shop)
+  const [bankId, setBankId] = useState<string | undefined>(props.bankId)
+  const bank = bankAccountFor(shop, bankId)
+  const payload = vietQr(shop, props.amount, props.memo, bank?.id)
   return (
     <Sheet
       title="Chuyển khoản VietQR"
@@ -597,16 +624,26 @@ function QrSheet(props: { floor: FloorState; order: Order; amount: number; memo:
       onClose={props.onClose}
       foot={
         <>
-          <button type="button" className="btn" onClick={props.onPrint} disabled={!payload}>
+          <button type="button" className="btn" onClick={() => props.onPrint(bank?.id)} disabled={!payload}>
             🖨 In mã
           </button>
-          <button type="button" className="btn btn-primary btn-grow" onClick={props.onConfirm} disabled={!payload}>
+          <button type="button" className="btn btn-primary btn-grow" onClick={() => props.onConfirm(bank?.id)} disabled={!payload}>
             <span>{formatVnd(props.amount)}</span>
             <b>Đã nhận tiền</b>
           </button>
         </>
       }
     >
+      {accounts.length > 1 && (
+        <div className="chip-row qr-banks" role="radiogroup" aria-label="Tài khoản nhận tiền">
+          {accounts.map((a, i) => (
+            <button key={a.id} type="button" role="radio" aria-checked={a.id === bank?.id} className={'chip chip-sm' + (a.id === bank?.id ? ' is-on' : '')} onClick={() => setBankId(a.id)}>
+              {bankShort(a)}
+              {i === 0 && <span className="chip-note"> (mặc định)</span>}
+            </button>
+          ))}
+        </div>
+      )}
       {payload ? (
         <div className="qr-step">
           <QrImage payload={payload} label={`VietQR ${formatVnd(props.amount)}`} />
@@ -623,15 +660,15 @@ function QrSheet(props: { floor: FloorState; order: Order; amount: number; memo:
             </div>
             <div>
               <dt>Ngân hàng</dt>
-              <dd>{shop.bankName}</dd>
+              <dd>{bank?.bankName}</dd>
             </div>
             <div>
               <dt>Số tài khoản</dt>
-              <dd>{shop.bankAccount}</dd>
+              <dd>{bank?.account}</dd>
             </div>
             <div>
               <dt>Chủ tài khoản</dt>
-              <dd>{shop.bankAccountName}</dd>
+              <dd>{bank?.holder}</dd>
             </div>
           </dl>
           <p className="muted small">Mở app ngân hàng của quán, thấy tiền về đúng số và đúng nội dung rồi mới bấm “Đã nhận tiền”.</p>
@@ -644,7 +681,7 @@ function QrSheet(props: { floor: FloorState; order: Order; amount: number; memo:
   )
 }
 
-function PrebillSheet(props: { floor: FloorState; order: Order; blocks: ReturnType<typeof receiptBlocks>; onClose: () => void; onPrint: (b: ReturnType<typeof receiptBlocks>) => void }) {
+function PrebillSheet(props: { floor: FloorState; order: Order; blocks: ReturnType<typeof receiptBlocks>; paper: number; onClose: () => void; onPrint: (b: ReturnType<typeof receiptBlocks>) => void }) {
   return (
     <Sheet
       title="Phiếu tạm tính"
@@ -652,7 +689,7 @@ function PrebillSheet(props: { floor: FloorState; order: Order; blocks: ReturnTy
       onClose={props.onClose}
       foot={
         <button type="button" className="btn btn-primary btn-grow" onClick={() => props.onPrint(props.blocks)}>
-          <span>80mm</span>
+          <span>{props.paper}mm</span>
           <b>🖨 In tạm tính</b>
         </button>
       }

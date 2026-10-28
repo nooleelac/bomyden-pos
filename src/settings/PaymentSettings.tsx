@@ -1,5 +1,5 @@
 // #/cai-dat/thanh-toan (settings.edit): which payment methods the cashier takes (tiền mặt, chuyển khoản with the
-// shop's bank account for VietQR, thẻ), one VAT % for the dishes sent from now on, and whether bills print VAT.
+// shop's bank accounts for VietQR — add, edit, remove, the default first —, thẻ), one VAT % for the dishes sent from now on, and whether bills print VAT.
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/context'
@@ -8,7 +8,7 @@ import { paymentSettings } from '../cashier/config'
 import { checkPaymentSettings } from '../floor/engine'
 import { errText } from '../floor/hooks'
 import type { FloorRepo } from '../floor/repo'
-import type { FloorState, PaymentSettings as Settings } from '../floor/types'
+import type { BankAccount, FloorState, PaymentSettings as Settings } from '../floor/types'
 import { METHOD_LABEL, type PayMethod } from '../lib/billing'
 import { Field, Section, Switch } from '../menu/ui'
 
@@ -60,8 +60,14 @@ export function PaymentSettings(props: { floor: FloorState; repo: FloorRepo; onE
   } catch (e) {
     problem = errText(e)
   }
-  const bankKnown = BANKS.some(b => b.bin === p.bankBin)
   const setMethod = (m: PayMethod, on: boolean) => setP({ ...p, payMethods: { ...p.payMethods, [m]: on } })
+  const setBank = (id: string, b: BankAccount | null) =>
+    setP({ ...p, bankAccounts: b ? p.bankAccounts.map(x => (x.id === id ? b : x)) : p.bankAccounts.filter(x => x.id !== id) })
+  const addBank = () => {
+    let n = p.bankAccounts.length + 1
+    while (p.bankAccounts.some(x => x.id === `tk-${n}`)) n++
+    setP({ ...p, bankAccounts: [...p.bankAccounts, { id: `tk-${n}`, bin: '', bankName: '', account: '', holder: '' }] })
+  }
   const save = () => {
     setBusy(true)
     props.repo
@@ -98,42 +104,43 @@ export function PaymentSettings(props: { floor: FloorState; repo: FloorRepo; onE
 
       {p.payMethods.bank && (
         <Section title="Tài khoản nhận chuyển khoản">
-          <p className="muted small">In lên mã VietQR của phiếu tạm tính và màn thu ngân. Kiểm tra kỹ số tài khoản trước khi lưu.</p>
-          <div className="form-grid">
-            <Field label="Ngân hàng">
-              <select
-                value={bankKnown ? p.bankBin : ''}
-                disabled={!canEdit}
-                onChange={e => {
-                  const b = BANKS.find(x => x.bin === e.target.value)
-                  setP(b ? { ...p, bankBin: b.bin, bankName: b.name } : { ...p, bankBin: '', bankName: '' })
-                }}
-              >
-                <option value="">Ngân hàng khác…</option>
-                {BANKS.map(b => (
-                  <option key={b.bin} value={b.bin}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            {!bankKnown && (
-              <>
-                <Field label="Tên ngân hàng">
-                  <input value={p.bankName} disabled={!canEdit} onChange={e => setP({ ...p, bankName: e.target.value })} />
-                </Field>
-                <Field label="Mã ngân hàng (BIN)" hint="6 chữ số theo NAPAS, ví dụ 970436">
-                  <input inputMode="numeric" maxLength={6} value={p.bankBin} disabled={!canEdit} onChange={e => setP({ ...p, bankBin: e.target.value.replace(/\D/g, '') })} />
-                </Field>
-              </>
-            )}
-            <Field label="Số tài khoản">
-              <input inputMode="numeric" value={p.bankAccount} disabled={!canEdit} onChange={e => setP({ ...p, bankAccount: e.target.value })} />
-            </Field>
-            <Field label="Chủ tài khoản" hint="Viết hoa, không dấu">
-              <input value={p.bankAccountName} disabled={!canEdit} onChange={e => setP({ ...p, bankAccountName: e.target.value })} />
-            </Field>
-          </div>
+          <p className="muted small">
+            In lên mã VietQR của phiếu tạm tính và màn thu ngân. Thu ngân chọn được tài khoản khi hiện mã; phiếu tạm tính in tài khoản mặc định. Kiểm tra kỹ số
+            tài khoản trước khi lưu.
+          </p>
+          <ol className="bank-list">
+            {p.bankAccounts.map((a, i) => (
+              <li key={a.id} className="bank-card">
+                <div className="bank-card-head">
+                  <b>
+                    Tài khoản {i + 1}
+                    {i === 0 && <span className="tag-default">Mặc định</span>}
+                  </b>
+                  <span className="bank-card-actions">
+                    {i > 0 && (
+                      <button type="button" className="btn btn-small" disabled={!canEdit} onClick={() => setP({ ...p, bankAccounts: [a, ...p.bankAccounts.filter(x => x.id !== a.id)] })}>
+                        Đặt mặc định
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-small btn-danger"
+                      disabled={!canEdit}
+                      onClick={() => {
+                        if (!a.account || window.confirm(`Xoá tài khoản ${a.bankName} ${a.account}?`)) setBank(a.id, null)
+                      }}
+                    >
+                      Xoá
+                    </button>
+                  </span>
+                </div>
+                <BankFields bank={a} disabled={!canEdit} onChange={b => setBank(a.id, b)} />
+              </li>
+            ))}
+          </ol>
+          <button type="button" className="btn" disabled={!canEdit} onClick={addBank}>
+            + Thêm tài khoản
+          </button>
         </Section>
       )}
 
@@ -197,5 +204,49 @@ export function PaymentSettings(props: { floor: FloorState; repo: FloorRepo; onE
         </button>
       </div>
     </section>
+  )
+}
+
+/** Bank (from the list, or another bank by name and BIN), account number and holder of one account. */
+function BankFields(props: { bank: BankAccount; disabled: boolean; onChange: (b: BankAccount) => void }) {
+  const { bank: a, disabled } = props
+  const set = (patch: Partial<BankAccount>) => props.onChange({ ...a, ...patch })
+  const known = BANKS.some(b => b.bin === a.bin)
+  return (
+    <div className="form-grid">
+      <Field label="Ngân hàng">
+        <select
+          value={known ? a.bin : ''}
+          disabled={disabled}
+          onChange={e => {
+            const b = BANKS.find(x => x.bin === e.target.value)
+            set(b ? { bin: b.bin, bankName: b.name } : { bin: '', bankName: '' })
+          }}
+        >
+          <option value="">Ngân hàng khác…</option>
+          {BANKS.map(b => (
+            <option key={b.bin} value={b.bin}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {!known && (
+        <>
+          <Field label="Tên ngân hàng">
+            <input value={a.bankName} disabled={disabled} onChange={e => set({ bankName: e.target.value })} />
+          </Field>
+          <Field label="Mã ngân hàng (BIN)" hint="6 chữ số theo NAPAS, ví dụ 970436">
+            <input inputMode="numeric" maxLength={6} value={a.bin} disabled={disabled} onChange={e => set({ bin: e.target.value.replace(/D/g, '') })} />
+          </Field>
+        </>
+      )}
+      <Field label="Số tài khoản">
+        <input inputMode="numeric" value={a.account} disabled={disabled} onChange={e => set({ account: e.target.value })} />
+      </Field>
+      <Field label="Chủ tài khoản" hint="Viết hoa, không dấu">
+        <input value={a.holder} disabled={disabled} onChange={e => set({ holder: e.target.value })} />
+      </Field>
+    </div>
   )
 }

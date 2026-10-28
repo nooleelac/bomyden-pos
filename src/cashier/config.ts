@@ -2,7 +2,7 @@
 // ĐIỀN THÔNG TIN THẬT: name, address, phone, tax code and the bank account below are placeholders.
 
 import type { PayMethod } from '../lib/billing'
-import type { PaymentSettings, ShopProfile } from '../floor/types'
+import type { BankAccount, PaymentSettings, ShopProfile } from '../floor/types'
 
 export const SAMPLE_SHOP: ShopProfile = {
   sample: true,
@@ -42,6 +42,19 @@ export function paymentSettings(shop: ShopProfile): PaymentSettings {
     payMethods: { cash: true, bank: true, card: true, ...shop.payMethods },
     vatRate: shop.vatRate ?? null,
     showVat: showVat(shop),
-    bankBin: shop.bankBin, bankName: shop.bankName, bankAccount: shop.bankAccount, bankAccountName: shop.bankAccountName,
+    bankAccounts: bankAccounts(shop),
   }
+}
+
+/** The shop's transfer accounts, the default first; a shop saved before 0019 has its one account. */
+export function bankAccounts(shop: ShopProfile): BankAccount[] {
+  if (shop.bankAccounts?.length) return shop.bankAccounts
+  if (!shop.bankBin && !shop.bankAccount) return []
+  return [{ id: 'tk-1', bin: shop.bankBin, bankName: shop.bankName, account: shop.bankAccount, holder: shop.bankAccountName }]
+}
+
+/** The account to show a VietQR for: the one picked, else the default. */
+export function bankAccountFor(shop: ShopProfile, id?: string): BankAccount | undefined {
+  const all = bankAccounts(shop)
+  return all.find(a => a.id === id) ?? all[0]
 }

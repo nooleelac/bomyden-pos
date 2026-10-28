@@ -10,15 +10,18 @@ import { billData, receiptTableTitle } from '../bill'
 import { printBlocks } from '../print'
 import { receiptBlocks } from '../receipt'
 import { ReceiptPreview } from './ui'
+import { usePrintSettings } from '../paper'
 
 export function BillPage(props: { floor: FloorState; repo: FloorRepo; billId: string; me: string; onError: (m: string) => void }) {
   const { floor, repo } = props
   const bill = floor.bills.find(b => b.id === props.billId)
   const [busy, setBusy] = useState(false)
+  const printCfg = usePrintSettings()
   // preview what the next print looks like
   const blocks = useMemo(
     () => (bill ? receiptBlocks(billData(floor, bill, { count: bill.printCount + 1, at: new Date().toISOString(), by: props.me })) : []),
-    [floor, bill, props.me],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- laid out for the paper and text size
+    [floor, bill, props.me, printCfg],
   )
   if (!bill) return <p className="empty">Không tìm thấy hoá đơn. <a href="#/thu-ngan">Về thu ngân</a></p>
   const change = bill.payments.reduce((s, p) => s + (p.tendered && p.tendered > p.amount ? p.tendered - p.amount : 0), 0)
@@ -76,10 +79,10 @@ export function BillPage(props: { floor: FloorState; repo: FloorRepo; billId: st
             </a>
           </div>
           <p className="muted small">
-            {bill.printCount ? `Đã in ${bill.printCount} lần${bill.lastPrintBy ? `, lần cuối: ${bill.lastPrintBy}` : ''}.` : 'Chưa in.'} Máy in: chọn máy in nhiệt 80mm trong hộp thoại in, lề “Không”.
+            {bill.printCount ? `Đã in ${bill.printCount} lần${bill.lastPrintBy ? `, lần cuối: ${bill.lastPrintBy}` : ''}.` : 'Chưa in.'} Máy in: khổ {printCfg.paper}mm, chỉnh ở <a href="#/cai-dat/may-in">Cài đặt → Máy in</a>.
           </p>
         </section>
-        <section aria-label="Xem trước hoá đơn 80mm">
+        <section aria-label="Xem trước hoá đơn">
           <ReceiptPreview blocks={blocks} title={`Hoá đơn ${bill.billNo}`} />
         </section>
       </div>

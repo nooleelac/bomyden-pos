@@ -8,7 +8,7 @@ import { billTableLabel } from '../floor/engine'
 import { orderLabel, tableName, tableTitle } from '../floor/logic'
 import type { Bill, FloorState, Line, Order, ShopProfile } from '../floor/types'
 import type { ReceiptData, ReceiptGroup, ReceiptItem, ReceiptPayment } from './receipt'
-import { enabledMethods } from './config'
+import { bankAccountFor, enabledMethods } from './config'
 
 /** 'Bàn 5-B', 'Bàn 3 + 4 (gộp)', 'MV-02' from a stored label ('5-B', 'nhóm gộp 3+4', 'MV-02'). */
 export function receiptTableTitle(label: string): string {
@@ -65,10 +65,14 @@ export function payMemo(s: FloorState, order: Order, part = ''): string {
   return asciiNote(`BMD${orderCode(order.id)}${part} ${where}`)
 }
 
-/** VietQR payload with the exact amount and memo, or null when the shop has no bank account set or takes no transfers. */
-export function vietQr(shop: ShopProfile, amount: number, memo: string): string | null {
-  if (!enabledMethods(shop).includes('bank') || !shop.bankBin || !shop.bankAccount || amount <= 0) return null
-  return vietQrPayload({ bankBin: shop.bankBin, account: shop.bankAccount, amount, note: memo })
+/**
+ * VietQR payload with the exact amount and memo to the account picked (`bankId`, else the default),
+ * or null when the shop has no bank account set or takes no transfers.
+ */
+export function vietQr(shop: ShopProfile, amount: number, memo: string, bankId?: string): string | null {
+  const bank = bankAccountFor(shop, bankId)
+  if (!enabledMethods(shop).includes('bank') || !bank?.bin || !bank.account || amount <= 0) return null
+  return vietQrPayload({ bankBin: bank.bin, account: bank.account, amount, note: memo })
 }
 
 export function discountLabel(d: Discount | null, reason: string): string {
@@ -91,12 +95,13 @@ export function prebillData(
   s: FloorState,
   order: Order,
   totals: BillTotals,
-  opts: { at: string; cashier?: string; discount?: Discount | null; discountReason?: string; printNo?: number; paidBefore?: ReceiptPayment[]; qrAmount?: number; qrPart?: string },
+  opts: { at: string; cashier?: string; discount?: Discount | null; discountReason?: string; printNo?: number; paidBefore?: ReceiptPayment[]; qrAmount?: number; qrPart?: string; qrBankId?: string },
 ): ReceiptData {
   const paid = (opts.paidBefore ?? []).reduce((n, p) => n + p.amount, 0)
   const qrAmount = opts.qrAmount ?? totals.total - paid
   const memo = payMemo(s, order, opts.qrPart)
-  const payload = vietQr(s.shop, qrAmount, memo)
+  const payload = vietQr(s.shop, qrAmount, memo, opts.qrBankId)
+  const bank = bankAccountFor(s.shop, opts.qrBankId)
   return {
     kind: 'prebill',
     shop: s.shop,
@@ -114,7 +119,7 @@ export function prebillData(
     vat: totals.vat,
     payments: opts.paidBefore,
     printNo: opts.printNo,
-    qr: payload ? { payload, amount: qrAmount, memo } : undefined,
+    qr: payload ? { payload, amount: qrAmount, memo, bank } : undefined,
   }
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedMenu } from '../menu/seed'
 import * as E from './engine'
-import { activeTickets, allergyText, buildTickets, doneTickets, groupLabel, orderLabel, readyToServe, tableState, tableTile, ticketKey } from './logic'
+import { activeTickets, allergyText, buildTickets, doneTickets, groupLabel, orderLabel, orderProgress, readyToServe, tableState, tableTile, ticketKey } from './logic'
 import { createMemoryFloorRepo } from './repo'
 import { sampleEvening, seedFloor } from './seed'
 import type { Actor, FloorState, Line, SendLineInput } from './types'
@@ -62,6 +62,14 @@ describe('mở bàn', () => {
     expect(groupLabel(r.state, o)).toBe('nhóm gộp 3+4+5')
     expect(['t-3', 't-4', 't-5'].map(t => tableState(r.state, table(r.state, t)))).toEqual(['occupied', 'occupied', 'occupied'])
     expect(tableTile(r.state, table(r.state, 't-4'), T0).groupLabel).toBe('Gộp 3+4+5')
+  })
+  it('keeps the id the device picked, so the order screen opens before the server answers', () => {
+    const r = E.openTable(seedFloor(), { tableId: 't-3', guestCount: 2, id: 'picked-1' }, waiter)
+    expect(r.orderId).toBe('picked-1')
+    expect(order(r.state, 'picked-1').tables[0].tableId).toBe('t-3')
+    // a table another device opened first returns that order, not the picked id
+    expect(E.openTable(r.state, { tableId: 't-3', guestCount: 2, id: 'picked-2' }, waiter).orderId).toBe('picked-1')
+    expect(E.openTakeaway(seedFloor(), { id: 'picked-3' }, waiter).orderId).toBe('picked-3')
   })
 })
 
@@ -151,6 +159,21 @@ describe('trạng thái món, xong phiếu, gọi lại', () => {
     expect(x.lines[0]).toMatchObject({ status: 'served', servedAt: at(3).now.toISOString() })
     // straight to Xong is allowed
     expect(E.setLineStatus(x, [ids[1]], 'ready', kitchen).lines[1].status).toBe('ready')
+  })
+  it('order card and table tile go Chờ làm → Đang làm → Đã làm xong with the dishes, and back on a new round', () => {
+    const { s, ids, orderId } = cooking()
+    expect(orderProgress(open(seedFloor(), 't-4').state, [])).toBeNull()
+    expect(orderProgress(s, [orderId])).toBe('waiting')
+    let x = E.setLineStatus(s, [ids[0]], 'cooking', kitchen)
+    expect(tableTile(x, table(x, 't-3'), at(1).now).progress).toBe('cooking')
+    x = E.setLineStatus(E.setLineStatus(x, [ids[0]], 'ready', kitchen), [ids[0]], 'served', at(3))
+    x = E.setLineStatus(x, [ids[1]], 'ready', kitchen)
+    // nothing started any more, but the steak's side part at another station still waits
+    expect(orderProgress(x, [orderId])).toBe('waiting')
+    for (const t of buildTickets(x, at(4).now)) x = E.bumpTicket(x, t.key, at(4, 'kitchen'))
+    expect(orderProgress(x, [orderId])).toBe('done')
+    expect(tableTile(x, table(x, 't-3'), at(3).now).progress).toBe('done')
+    expect(orderProgress(send(x, orderId, [beer(1)]).state, [orderId])).toBe('waiting')
   })
   it('bump moves the rest to Xong, recall brings unserved dishes back with GỌI LẠI and the original timer', () => {
     const { s } = cooking()
@@ -536,14 +559,27 @@ describe('xoá vĩnh viễn (admin.delete)', () => {
 })
 
 describe('cài đặt thanh toán', () => {
-  const base = { payMethods: { cash: true, bank: true, card: true }, vatRate: null, showVat: true, bankBin: '970436', bankName: 'Vietcombank', bankAccount: '0123 456 789', bankAccountName: 'nguyen van a' }
+  const vcb = { id: 'tk-1', bin: '970436', bankName: 'Vietcombank', account: '0123 456 789', holder: 'nguyen van a' }
+  const mb = { id: 'tk-2', bin: '970422', bankName: 'MB Bank', account: '9999888877', holder: 'TRAN THI B' }
+  const base = { payMethods: { cash: true, bank: true, card: true }, vatRate: null, showVat: true, bankAccounts: [vcb] }
   it('needs one method, a bank account for transfers, a whole VAT % from 0 to 100, and settings.edit', () => {
     expect(() => E.checkPaymentSettings({ ...base, payMethods: { cash: false, bank: false, card: false } })).toThrow('Bật ít nhất một phương thức thanh toán')
-    expect(() => E.checkPaymentSettings({ ...base, bankBin: '97' })).toThrow('BIN')
+    expect(() => E.checkPaymentSettings({ ...base, bankAccounts: [{ ...vcb, bin: '97' }] })).toThrow('BIN')
     expect(() => E.checkPaymentSettings({ ...base, vatRate: 7.5 })).toThrow('Thuế suất')
-    expect(E.checkPaymentSettings({ ...base, bankBin: '', payMethods: { cash: true, bank: false, card: true } }).payMethods.bank).toBe(false)
-    expect(E.checkPaymentSettings(base)).toMatchObject({ bankAccount: '0123456789', bankAccountName: 'NGUYEN VAN A' })
+    expect(() => E.checkPaymentSettings({ ...base, bankAccounts: [] })).toThrow('Thêm ít nhất một tài khoản')
+    expect(E.checkPaymentSettings({ ...base, bankAccounts: [], payMethods: { cash: true, bank: false, card: true } }).payMethods.bank).toBe(false)
+    expect(E.checkPaymentSettings(base).bankAccounts[0]).toMatchObject({ account: '0123456789', holder: 'NGUYEN VAN A' })
     expect(() => E.saveShop(seedFloor(), base, waiter)).toThrow('Chưa có quyền')
+  })
+  it('keeps several accounts, the default first, mirrored into the one-account fields', () => {
+    expect(() => E.checkPaymentSettings({ ...base, bankAccounts: [vcb, { ...mb, account: '12' }] })).toThrow('tài khoản 2')
+    expect(() => E.checkPaymentSettings({ ...base, bankAccounts: [vcb, { ...vcb, id: 'tk-2' }] })).toThrow('trùng')
+    expect(() => E.checkPaymentSettings({ ...base, bankAccounts: [vcb, { ...mb, id: 'tk-1' }] })).toThrow('trùng')
+    const s = E.saveShop(seedFloor(), { ...base, bankAccounts: [mb, vcb] }, manager)
+    expect(s.shop.bankAccounts?.map(a => a.id)).toEqual(['tk-2', 'tk-1'])
+    expect(s.shop).toMatchObject({ bankBin: '970422', bankName: 'MB Bank', bankAccount: '9999888877', bankAccountName: 'TRAN THI B' })
+    // all removed with transfers off: the one-account fields are cleared too
+    expect(E.saveShop(s, { ...base, bankAccounts: [], payMethods: { cash: true, bank: false, card: true } }, manager).shop.bankAccount).toBe('')
   })
   it("the shop's VAT % applies to dishes sent after saving; dishes already sent keep their rate", () => {
     const r = open(seedFloor(), 't-1')

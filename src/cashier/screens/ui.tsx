@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatMoney } from '../../lib/billing'
+import { PAPERS, setPrintSettings, usePrintSettings } from '../paper'
 import { qrSvg, receiptHtml } from '../print'
 import type { Block } from '../receipt'
 
@@ -37,9 +38,13 @@ export function MoneyInput(props: { value: number | null; onChange: (v: number |
   )
 }
 
-/** The receipt exactly as it prints, in an iframe sized to its content. */
-export function ReceiptPreview(props: { blocks: Block[]; title: string }) {
-  const html = useMemo(() => receiptHtml(props.blocks, props.title), [props.blocks, props.title])
+/** The receipt exactly as it prints, in an iframe sized to its content, with this device's paper width to pick.
+ *  The screen that lays out the blocks calls usePrintSettings() so they are laid out again for the new width. */
+export function ReceiptPreview(props: { blocks: Block[]; title: string; picker?: boolean }) {
+  const print = usePrintSettings()
+  const paper = print.paper
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the print CSS reads the print settings
+  const html = useMemo(() => receiptHtml(props.blocks, props.title), [props.blocks, props.title, print])
   const ref = useRef<HTMLIFrameElement>(null)
   const [h, setH] = useState(600)
   useEffect(() => {
@@ -53,9 +58,22 @@ export function ReceiptPreview(props: { blocks: Block[]; title: string }) {
     return () => f.removeEventListener('load', fit)
   }, [html])
   return (
-    <div className="receipt-paper">
-      <iframe ref={ref} title={props.title} srcDoc={html} style={{ height: h }} />
-    </div>
+    <>
+      {props.picker !== false && (
+      <div className="paper-pick" role="group" aria-label="Khổ giấy máy in">
+        <span className="muted">Khổ giấy máy in:</span>
+        {PAPERS.map(p => (
+          <button key={p} type="button" className={'chip chip-sm' + (p === paper ? ' is-on' : '')} aria-pressed={p === paper} onClick={() => setPrintSettings({ paper: p })}>
+            {p}mm
+          </button>
+        ))}
+        <a href="#/cai-dat/may-in" className="small">Cài đặt máy in</a>
+      </div>
+      )}
+      <div className="receipt-paper">
+        <iframe ref={ref} title={props.title} srcDoc={html} style={{ height: h }} />
+      </div>
+    </>
   )
 }
 

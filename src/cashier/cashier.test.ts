@@ -7,10 +7,12 @@ import { sampleEvening, seedFloor } from '../floor/seed'
 import { tableState } from '../floor/logic'
 import type { Actor, FloorState, SendLineInput } from '../floor/types'
 import { billData, orderCode, payMemo, prebillData, receiptTableTitle, vietQr } from './bill'
-import { BIG_WIDTH, WIDTH, blocksText, center, itemLines, receiptBlocks, row, shiftReportBlocks, textWidth, wrap, type Block, type ReceiptData } from './receipt'
-import { countedTotal, shiftSummary } from './shift'
-import { SAMPLE_SHOP } from './config'
+import { colsAt, cols, blocksText, center, itemLines, receiptBlocks, row, shiftReportBlocks, textWidth, wrap, type Block, type ReceiptData } from './receipt'
+import { bankRowLabel, countedTotal, shiftSummary } from './shift'
+import { SAMPLE_SHOP, bankAccountFor, bankAccounts } from './config'
 import { receiptHtml } from './print'
+import { DEFAULT_PRINT, setPrintSettings } from './paper'
+import { DEFAULT_TEMPLATE, receiptTemplate } from './template'
 
 // ---------------------------------------------------------------- split payment, change
 
@@ -141,6 +143,24 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
     expect(tableState(r.state, r.state.tables.find(t => t.id === 't-9')!)).toBe('free')
   })
 
+  it('keeps the account each transfer went to, and the shift adds transfers up by account', () => {
+    const t = table9()
+    const vp = { id: 'tk-1', bin: '970432', bankName: 'VPBank', account: '1234567902', holder: 'NGUYEN VAN A' }
+    const s = E.openShift(t.s, { openingFloat: 0 }, cashier).state
+    const r = E.payOrder(s, t.id, { payments: [{ method: 'bank', amount: 200000, bankAccount: vp }, { method: 'cash', amount: 96000, bankAccount: vp }] }, cashier)
+    const bill = r.state.bills.find(b => b.id === r.billId)!
+    expect(bill.payments.map(p => p.bankAccount)).toEqual([vp, null])
+    const older = { ...bill, id: 'b-old', payments: [{ ...bill.payments[0], id: 'p-old', amount: 50000, bankAccount: null }] }
+    const sum = shiftSummary({ id: bill.shiftId!, openingFloat: 0 }, [...r.state.bills, older])
+    expect(sum.byBank.map(x => [bankRowLabel(x), x.amount, x.count])).toEqual([
+      ['VPBank · 1234567902 · NGUYEN VAN A', 200000, 1],
+      ['Chưa rõ tài khoản', 50000, 1],
+    ])
+    const txt = blocksText(shiftReportBlocks({ shop: SAMPLE_SHOP, register: 'Quầy 1', openedBy: 'Lan', openedAt: '2026-10-17T10:00:00Z', summary: sum }))
+    expect(txt).toMatch(/VPBank 7902 +200\.000/)
+    expect(txt).toContain('Chưa rõ TK')
+  })
+
   it('refuses short, over and non-cash overpayment', () => {
     const t = table9()
     const id = t.id
@@ -219,7 +239,7 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
     ]
     expect(shiftSummary({ id: 'sh1', openingFloat: 1500000 }, bills)).toEqual({
       bills: 2, subtotal: 705000, discount: 19600, serviceCharge: 0, rounding: -400, sales: 685000, vatTotal: 53264,
-      byMethod: { cash: 485000, bank: 200000, card: 0 }, cashTendered: 509000, changeGiven: 24000, openingFloat: 1500000, expectedCash: 1985000,
+      byMethod: { cash: 485000, bank: 200000, card: 0 }, byBank: [{ key: '', bank: null, amount: 200000, count: 1 }], cashTendered: 509000, changeGiven: 24000, openingFloat: 1500000, expectedCash: 1985000,
     })
   })
 
@@ -244,8 +264,12 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
 
 const texts = (bs: Block[]) => bs.filter((b): b is Extract<Block, { kind: 'text' }> => b.kind === 'text')
 
+/** Times the base text: template parts set size, older blocks big. */
+const sizeOf = (b: Extract<Block, { kind: 'text' }>) => b.size ?? (b.big ? 2 : 1)
+const isBig = (b: Extract<Block, { kind: 'text' }>) => sizeOf(b) >= 2
+
 function expectFits(bs: Block[]) {
-  for (const b of texts(bs)) expect(textWidth(b.text), JSON.stringify(b.text)).toBeLessThanOrEqual(b.big ? BIG_WIDTH : WIDTH)
+  for (const b of texts(bs)) expect(textWidth(b.text), JSON.stringify(b.text)).toBeLessThanOrEqual(colsAt(sizeOf(b)))
 }
 
 describe('receipt line layout (48 characters)', () => {
@@ -253,7 +277,7 @@ describe('receipt line layout (48 characters)', () => {
     expect(row('Tạm tính', '1.342.000')).toEqual(['Tạm tính' + ' '.repeat(48 - 8 - 9) + '1.342.000'])
     const long = row('Ba chỉ bò Mỹ nướng sốt tiêu đen đặc biệt của nhà hàng Bò Mỹ Đen', '1.149.000')
     expect(long.length).toBe(2)
-    expect(long.every(l => textWidth(l) <= WIDTH)).toBe(true)
+    expect(long.every(l => textWidth(l) <= cols())).toBe(true)
     expect(long[1].endsWith('1.149.000')).toBe(true)
     expect(long[1].startsWith('  ')).toBe(true) // continuation indent
     expect(textWidth(long[1])).toBe(48)
@@ -334,7 +358,7 @@ describe('receipt line layout (48 characters)', () => {
     has('Tạm tính' + ' '.repeat(48 - 8 - 9) + '1.342.000')
     has('Giảm giá 5% (KM hoá đơn từ 1 triệu)' + ' '.repeat(48 - 35 - 7) + '-67.100')
     has('Làm tròn' + ' '.repeat(48 - 8 - 4) + '-900')
-    const big = texts(bs).filter(b => b.big)
+    const big = texts(bs).filter(isBig)
     expect(big.map(b => b.text)).toContain('TỔNG CỘNG' + ' '.repeat(24 - 9 - 10) + '1.274.000đ')
     has('Giá đã gồm thuế GTGT. Trong đó:')
     has('  Thuế GTGT 8% (trên 959.878)' + ' '.repeat(48 - 29 - 6) + '76.790')
@@ -358,10 +382,10 @@ describe('receipt line layout (48 characters)', () => {
     const bs = receiptBlocks({ ...data, kind: 'prebill', billNo: undefined, printNo: 2, payments: [{ method: 'bank', amount: 500000 }], qr: { payload: '000201...', amount: 774000, memo: 'BMD3F9A2C BAN3' } })
     expectFits(bs)
     const txt = blocksText(bs)
-    expect(texts(bs).find(b => b.big && b.text.includes('PHIẾU TẠM TÍNH'))).toBeTruthy()
+    expect(texts(bs).find(b => isBig(b) && b.text.includes('PHIẾU TẠM TÍNH'))).toBeTruthy()
     expect(txt).toContain('CHƯA THANH TOÁN')
     expect(txt).toContain('Lần in: 2')
-    expect(texts(bs).some(b => b.big && b.text === 'CÒN PHẢI TRẢ    774.000đ')).toBe(true)
+    expect(texts(bs).some(b => isBig(b) && b.text === 'CÒN PHẢI TRẢ    774.000đ')).toBe(true)
     expect(txt).toContain('Đã thu trước:')
     expect(bs.filter(b => b.kind === 'qr')).toEqual([{ kind: 'qr', payload: '000201...' }])
     expect(txt).toContain('Số tiền: 774.000đ')
@@ -386,10 +410,52 @@ describe('receipt line layout (48 characters)', () => {
     expect(html.match(/<div class="l/g)!.length).toBeGreaterThan(40)
   })
 
+  it('lays out 28 larger columns on a 58mm page so the printer does not shrink it', () => {
+    setPrintSettings({ paper: 58, size: 'm' })
+    try {
+      const bs = receiptBlocks({ ...data, kind: 'prebill', qr: { payload: '00020101021238570010A000000727', amount: 1000, memo: 'X' } })
+      expectFits(bs)
+      expect(Math.max(...texts(bs).filter(b => !isBig(b)).map(b => textWidth(b.text)))).toBe(28)
+      const html = receiptHtml(bs)
+      expect(html).toContain('@page { size: 58mm auto; margin: 0; }')
+      expect(html).toContain('width: 48mm;')
+      expect(html).toContain('font-size: 2.86mm')
+    } finally {
+      setPrintSettings(DEFAULT_PRINT)
+    }
+  })
+
+  it('follows the shop template: own words, sizes, extra lines; fits every size on 58mm', () => {
+    const template = {
+      ...DEFAULT_TEMPLATE,
+      billTitle: { text: 'HOÁ ĐƠN BÁN LẺ', size: 1.5 as const, bold: true },
+      items: { size: 1.5 as const, bold: false },
+      totalLabel: { text: 'THANH TOÁN', size: 2 as const, bold: true },
+      footerNote: { text: 'Wifi: bomyden\nMật khẩu: 12345678', size: 1 as const, bold: false },
+      showStaff: false,
+    }
+    const shop2 = { ...shop, receiptTemplate: template }
+    setPrintSettings({ paper: 58, size: 'm' })
+    try {
+      const bs = receiptBlocks({ ...data, shop: shop2 })
+      expectFits(bs)
+      const tx = texts(bs)
+      expect(tx.find(b => b.text.includes('HOÁ ĐƠN BÁN LẺ'))?.size).toBe(1.5)
+      expect(tx.some(b => isBig(b) && b.text.startsWith('THANH TOÁN'))).toBe(true)
+      expect(tx.some(b => b.text.includes('Thu ngân'))).toBe(false)
+      expect(tx.map(b => b.text.trim())).toContain('Mật khẩu: 12345678')
+      expect(receiptHtml(bs)).toContain('style="font-size:1.5em"')
+    } finally {
+      setPrintSettings(DEFAULT_PRINT)
+    }
+    // anything stored that is not a template reads as the defaults
+    expect(receiptTemplate({ billTitle: { text: 5, size: 7 }, showStaff: 'x' })).toEqual(DEFAULT_TEMPLATE)
+  })
+
   it('shift report fits 48 columns and shows expected vs counted', () => {
     const summary = {
       bills: 12, subtotal: 8540000, discount: 120000, serviceCharge: 0, rounding: -2300, sales: 8417700, vatTotal: 640000,
-      byMethod: { cash: 3100000, bank: 4517700, card: 800000 }, cashTendered: 3600000, changeGiven: 500000, openingFloat: 2000000, expectedCash: 5100000,
+      byMethod: { cash: 3100000, bank: 4517700, card: 800000 }, byBank: [], cashTendered: 3600000, changeGiven: 500000, openingFloat: 2000000, expectedCash: 5100000,
     }
     const bs = shiftReportBlocks({ shop, register: 'Quầy 1', openedBy: 'Lan', openedAt: '2026-10-17T10:00:00Z', closedBy: 'Lan', closedAt: '2026-10-17T16:00:00Z', summary, countedDetail: { '500000': 10, '20000': 3 }, countedCash: 5060000, note: 'Thiếu 40.000' })
     expectFits(bs)
@@ -453,5 +519,19 @@ describe('cài đặt thanh toán trên hoá đơn', () => {
   it('no VietQR when the shop takes no transfers', () => {
     expect(vietQr(SAMPLE_SHOP, 1000, 'X')).not.toBeNull()
     expect(vietQr({ ...SAMPLE_SHOP, payMethods: { cash: true, bank: false, card: true } }, 1000, 'X')).toBeNull()
+  })
+  it('reads a shop saved with one account as a list of one, and shows the QR for the account picked', () => {
+    expect(bankAccounts(SAMPLE_SHOP)).toEqual([{ id: 'tk-1', bin: '970436', bankName: 'Vietcombank', account: '0000000000', holder: 'TAI KHOAN MAU' }])
+    expect(bankAccounts({ ...SAMPLE_SHOP, bankBin: '', bankAccount: '' })).toEqual([])
+    const mb = { id: 'tk-2', bin: '970422', bankName: 'MB Bank', account: '9999888877', holder: 'TRAN THI B' }
+    const shop = { ...SAMPLE_SHOP, bankAccounts: [...bankAccounts(SAMPLE_SHOP), mb] }
+    expect(vietQr(shop, 1000, 'X')).toContain('0000000000')
+    expect(vietQr(shop, 1000, 'X', 'tk-2')).toContain('9999888877')
+    expect(vietQr(shop, 1000, 'X', 'gone')).toContain('0000000000')
+    expect(bankAccountFor(shop, 'tk-2')).toBe(mb)
+    const txt = blocksText(receiptBlocks({ ...data, shop, qr: { payload: 'P', amount: 1000, memo: 'X', bank: mb } }))
+    expect(txt).toContain('MB Bank · 9999888877')
+    expect(txt).toContain('TRAN THI B')
+    expect(blocksText(receiptBlocks({ ...data, qr: { payload: 'P', amount: 1000, memo: 'X' } }))).toContain('Vietcombank · 0000000000')
   })
 })

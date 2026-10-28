@@ -76,6 +76,9 @@
 .method-list { list-style: none; margin: 0; padding: 0; }
 .method-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .method-list li:last-child { border-bottom: 0; }
+.method-list .method-sub { padding: 4px 0 4px 18px; font-size: 13px; }
+.method-list .method-sub > span:first-child { overflow-wrap: anywhere; }
+.method-list .method-sub b { font-weight: 600; }
 
 .hour-chart { display: flex; align-items: stretch; gap: 2px; height: 140px; }
 .hour-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }

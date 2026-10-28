@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import { vnd } from '../../menu/picker'
-import { isOpen, minutesText, orderAmount, orderLabel } from '../logic'
+import { isOpen, minutesText, orderAmount, orderLabel, orderProgress, PROGRESS_LABEL } from '../logic'
 import type { FloorState, Order, Role } from '../types'
 
 type Filter = 'all' | 'dine_in' | 'takeaway' | 'bill'
@@ -50,14 +50,16 @@ export function OrdersPage(props: { floor: FloorState; now: Date; role: Role }) 
           <ul className="order-cards">
             {shown.map(o => {
               const st = stateOf(o)
+              const pg = orderProgress(floor, [o.id])
               return (
                 <li key={o.id}>
-                  <a className={`order-card st-${st}`} href={`#/ban/don/${o.id}`}>
+                  <a className={`order-card st-${st}` + (pg ? ` pg-${pg}` : '')} href={`#/ban/don/${o.id}`}>
                     <span className="order-card-head">
                       <span className="order-card-tag" aria-hidden>
                         {st !== 'open' ? '🧮' : o.kind === 'takeaway' ? '🥡' : '🍽️'}
                       </span>
                       {placeOf(o)}
+                      {pg && <span className={`progress-tag pg-${pg}`}>{PROGRESS_LABEL[pg]}</span>}
                     </span>
                     <span className="order-card-body">
                       <b className="order-card-table">{orderLabel(floor, o)}</b>
