@@ -330,3 +330,6 @@
 .guest-note { margin: 8px 0 0; padding: 8px 10px; background: var(--accent-soft); border-radius: 8px; }
 @media (prefers-reduced-motion: reduce) { .guest-alert { animation: none; } }
 .rail-nowrap { white-space: nowrap; }
+.guest-call { border-left: 4px solid var(--warn); }
+.guest-call.is-bill { border-left-color: var(--ok); }
+.guest-call .btn-row .btn:not(.btn-grow) { text-decoration: none; }

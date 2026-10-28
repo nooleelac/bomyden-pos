@@ -235,13 +235,18 @@ export interface FloorState {
 
 export type GuestRequestStatus = 'pending' | 'accepted' | 'rejected'
 
+/** Gọi món (dishes, 0023), Gọi thanh toán or Gọi phục vụ (0024: no lines, Đã xử lý marks them done). */
+export type GuestRequestKind = 'order' | 'bill' | 'service'
+
 /** What a guest sent from the table's QR page. Nothing reaches the kitchen until a waiter accepts it. */
 export interface GuestRequest {
   id: string
+  /** Missing = 'order' (saved before 0024). */
+  kind?: GuestRequestKind
   tableId: string
   /** send_order_lines form; priced when accepted. */
   lines: SendLineInput[]
-  /** Becomes the order note when the order has none (≤ 60). */
+  /** Dishes: becomes the order note when the order has none; a call: what the guest needs (≤ 60). */
   note: string
   guestCount: number | null
   status: GuestRequestStatus

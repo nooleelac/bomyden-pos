@@ -1092,10 +1092,40 @@ export function placeGuestOrder(s: FloorState, token: string, inp: GuestOrderInp
   if (mine.filter(r => r.status === 'pending').length >= 5) fail('Bàn đang có nhiều yêu cầu chờ, nhân viên sẽ tới ngay')
   if (mine.filter(r => now.getTime() - new Date(r.createdAt).getTime() < 3600_000).length >= 12) fail('Bàn đã gửi nhiều yêu cầu, mời bạn gọi nhân viên')
   const r: GuestRequest = {
-    id: inp.id, tableId: t.id, lines: inp.lines, note, guestCount: inp.guestCount ?? null, status: 'pending', reason: '',
+    id: inp.id, kind: 'order', tableId: t.id, lines: inp.lines, note, guestCount: inp.guestCount ?? null, status: 'pending', reason: '',
     createdAt: now.toISOString(), decidedAt: null, decidedBy: '', orderId: null,
   }
   return { ...s, guestRequests: [...guestList(s), r] }
+}
+
+export interface GuestCallInput {
+  id: string
+  kind: 'bill' | 'service'
+  note?: string
+}
+
+/**
+ * Gọi thanh toán / Gọi phục vụ (guest_call, 0024). The same call still waiting is returned instead of a second one;
+ * the bill needs dishes on the table. Resolves with the id the phone should follow.
+ */
+export function placeGuestCall(s: FloorState, token: string, inp: GuestCallInput, now: Date): { state: FloorState; id: string } {
+  const t = guestTable(s, token)
+  const prior = guestList(s).find(r => r.id === inp.id)
+  if (prior) return prior.tableId === t.id ? { state: s, id: prior.id } : fail('Mã yêu cầu đã dùng')
+  const note = (inp.note ?? '').trim()
+  checkNote(note)
+  const waiting = guestList(s).find(r => r.tableId === t.id && r.kind === inp.kind && r.status === 'pending')
+  if (waiting) return { state: s, id: waiting.id }
+  if (inp.kind === 'bill') {
+    const orders = new Set(openOrdersAt(s, t.id).map(o => o.id))
+    if (!s.lines.some(l => orders.has(l.orderId) && l.status !== 'void')) fail('Bàn chưa có món nào để thanh toán')
+  }
+  if (guestList(s).filter(r => r.tableId === t.id && now.getTime() - new Date(r.createdAt).getTime() < 3600_000).length >= 12) fail('Bàn đã gửi nhiều yêu cầu, mời bạn gọi nhân viên')
+  const r: GuestRequest = {
+    id: inp.id, kind: inp.kind, tableId: t.id, lines: [], note, guestCount: null, status: 'pending', reason: '',
+    createdAt: now.toISOString(), decidedAt: null, decidedBy: '', orderId: null,
+  }
+  return { state: { ...s, guestRequests: [...guestList(s), r] }, id: r.id }
 }
 
 function pendingGuest(s: FloorState, id: string): GuestRequest {
@@ -1105,13 +1135,19 @@ function pendingGuest(s: FloorState, id: string): GuestRequest {
 }
 
 /**
- * Nhận (accept_guest_request): open the table if it is free, send the lines on its first open order as one round.
+ * Nhận (accept_guest_request): a call is only marked done (Đã xử lý). Dishes: open the table if it is free, send the lines on its first open order as one round.
  * The request id is the send batch, so accepting twice sends once.
  */
 export function acceptGuestRequest(s: FloorState, id: string, c: Ctx): { state: FloorState; orderId: string } {
   floorStaff(c)
   const r = pendingGuest(s, id)
-  if (r.status === 'accepted' && r.orderId) return { state: s, orderId: r.orderId }
+  if (r.status === 'accepted') return { state: s, orderId: r.orderId ?? '' }
+  if ((r.kind ?? 'order') !== 'order') {
+    // a call: Đã xử lý, with the table's order for the cashier link
+    const orderId = openOrdersAt(s, r.tableId)[0]?.id ?? null
+    const done = { status: 'accepted' as const, decidedAt: iso(c), decidedBy: c.actor.name, orderId }
+    return { state: { ...s, guestRequests: guestList(s).map(x => (x.id === id ? { ...x, ...done } : x)) }, orderId: orderId ?? '' }
+  }
   const t = getTable(s, r.tableId)
   const opened = openTable(s, { tableId: t.id, guestCount: r.guestCount ?? Math.min(99, Math.max(1, t.seats || 1)), id: c.newId() }, c)
   let state = opened.state

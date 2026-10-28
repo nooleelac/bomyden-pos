@@ -1,13 +1,16 @@
 // QR order (the rail item of Sơ đồ bàn and Đơn; #/ban/khach opens it): what guests sent from their table, oldest first. Nhận sends it to the kitchen
 // on the table's order (opened if the table is free) as one round; Từ chối tells the guest why. Below: the last
-// ones decided, so a second waiter sees who took which.
+// ones decided, so a second waiter sees who took which. Gọi thanh toán / Gọi phục vụ (0024) sit on top: Đã xử lý once
+// someone is at the table (the bill one links to the cashier).
 
 import { useState } from 'react'
+import { useAuth } from '../../auth/context'
+import { roleCan } from '../../auth/permissions'
 import { describeLine, quoteLine, vnd } from '../../menu/picker'
 import type { Menu } from '../../menu/types'
 import { toPicker } from '../engine'
 import { go } from '../hooks'
-import { formatDuration, openOrdersAt, pendingGuests, tableName, tableTitle } from '../logic'
+import { formatDuration, openOrdersAt, orderAmount, pendingGuests, tableName, tableTitle } from '../logic'
 import type { FloorRepo } from '../repo'
 import type { FloorState, GuestRequest } from '../types'
 import { Sheet } from './Sheet'
@@ -18,8 +21,11 @@ const REJECT_REASONS = ['Món đã hết', 'Bàn chưa có khách', 'Nhân viên
 export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: FloorRepo; now: Date; onError: (m: string) => void; onInfo: (m: string) => void }) {
   const { floor, menu, repo, now } = props
   const [busy, setBusy] = useState<string | null>(null)
+  const cashier = roleCan(useAuth().session.role, 'pay.collect')
   const [rejecting, setRejecting] = useState<GuestRequest | null>(null)
-  const pending = pendingGuests(floor)
+  const all = pendingGuests(floor)
+  const calls = all.filter(r => r.kind === 'bill' || r.kind === 'service')
+  const pending = all.filter(r => !calls.includes(r))
   const decided = (floor.guestRequests ?? [])
     .filter(r => r.status !== 'pending' && r.decidedAt && now.getTime() - new Date(r.decidedAt).getTime() < 2 * 3600_000)
     .sort((a, b) => (b.decidedAt ?? '').localeCompare(a.decidedAt ?? ''))
@@ -31,8 +37,9 @@ export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: Floo
     repo
       .acceptGuest(r.id)
       .then(orderId => {
+        if (calls.includes(r)) return props.onInfo(`Đã xử lý: ${title(r)} ${r.kind === 'bill' ? 'gọi thanh toán' : 'gọi phục vụ'}`)
         props.onInfo(`Đã gửi bếp món của ${title(r)}`)
-        if (pendingGuests(floor).length <= 1) go(`ban/don/${orderId}`)
+        if (pending.length <= 1 && orderId) go(`ban/don/${orderId}`)
       }, fail)
       .finally(() => setBusy(null))
   }
@@ -40,10 +47,38 @@ export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: Floo
   return (
     <div className="guest-requests">
       <h2 className="section-head">
-        <span>📱 Khách gọi món qua QR</span>
+        <span>📱 Yêu cầu từ khách (QR)</span>
       </h2>
       {floor.settings.guestOrder === false && <p className="warn">Đang tắt gọi món qua QR (Cài đặt → Mã QR gọi món).</p>}
-      {pending.length === 0 && <p className="muted">Không có yêu cầu nào đang chờ.</p>}
+      {all.length === 0 && <p className="muted">Không có yêu cầu nào đang chờ.</p>}
+      {calls.map(r => {
+        const bill = r.kind === 'bill'
+        const order = openOrdersAt(floor, r.tableId)[0]
+        return (
+          <section key={r.id} className={'card guest-card guest-call' + (bill ? ' is-bill' : '')}>
+            <header className="card-head">
+              <h2>
+                {bill ? '🧾' : '🙋'} {title(r)} {bill ? 'gọi thanh toán' : 'gọi phục vụ'}
+              </h2>
+              <span className="muted small">
+                {formatDuration(now.getTime() - new Date(r.createdAt).getTime())} trước
+                {bill && order ? ` · ${vnd(orderAmount(floor, order.id))}` : ''}
+              </span>
+            </header>
+            {r.note && <p className="guest-note">📝 {r.note}</p>}
+            <div className="btn-row">
+              {bill && order && cashier && (
+                <a className="btn" href={`#/thu-ngan/${order.id}`}>
+                  Mở thu ngân ›
+                </a>
+              )}
+              <button type="button" className="btn btn-primary btn-grow" disabled={busy === r.id} onClick={() => accept(r)}>
+                <span>{busy === r.id ? 'Đang lưu…' : bill ? 'Đã xử lý' : 'Đã tới bàn'}</span>
+              </button>
+            </div>
+          </section>
+        )
+      })}
       {pending.map(r => {
         const rows = r.lines.map(l => {
           const item = menu.items.find(i => i.id === l.menu_item_id)
@@ -103,7 +138,7 @@ export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: Floo
               <li key={r.id} className="guest-line">
                 <span>
                   <b>
-                    {title(r)}: {r.status === 'accepted' ? 'đã nhận' : 'từ chối'}
+                    {title(r)}{r.kind === 'bill' ? ' gọi thanh toán' : r.kind === 'service' ? ' gọi phục vụ' : ''}: {r.status === 'accepted' ? (r.kind === 'bill' || r.kind === 'service' ? 'đã xử lý' : 'đã nhận') : 'từ chối'}
                   </b>
                   <span className="muted small">
                     {r.decidedBy}

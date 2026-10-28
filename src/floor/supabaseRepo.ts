@@ -170,7 +170,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       },
       clockOffset,
       guestRequests: list('guest_requests').map((r): GuestRequest => ({
-        id: s(r.id), tableId: s(r.table_id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), guestCount: nn(r.guest_count),
+        id: s(r.id), kind: r.kind === 'bill' || r.kind === 'service' ? r.kind : 'order', tableId: s(r.table_id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), guestCount: nn(r.guest_count),
         status: r.status as GuestRequestStatus, reason: s(r.reason), createdAt: s(r.created_at), decidedAt: sn(r.decided_at),
         decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
       })),
@@ -348,7 +348,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         )
       }),
     adminDelete: (kind, id) => call('admin_delete', { p_kind: kind, p_id: id }),
-    acceptGuest: id => act(() => rpc<string>(db, 'accept_guest_request', { p_id: id })).then(s),
+    acceptGuest: id => act(() => rpc<string | null>(db, 'accept_guest_request', { p_id: id })).then(s),
     rejectGuest: (id, reason) => call('reject_guest_request', { p_id: id, p_reason: reason }, (st, c) => E.rejectGuestRequest(st, id, reason, c)),
     tableQrTokens: id => call('table_qr_tokens', { p_table: id }),
     setGuestOrder: on => call('set_guest_order', { p_on: on }, (st, c) => E.setGuestOrder(st, on, c)),

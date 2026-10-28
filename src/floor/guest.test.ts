@@ -91,6 +91,36 @@ describe('khách gọi món qua QR', () => {
     expect(() => E.placeGuestOrder(many, token('t-5'), { id: 'g-9', lines: [beer] }, menu, T0)).toThrow('nhiều yêu cầu chờ')
   })
 
+  it('Gọi phục vụ waits once per table; Đã xử lý sends nothing to the kitchen', () => {
+    const { s, token } = withQr()
+    const a = E.placeGuestCall(s, token('t-5'), { id: 'c-1', kind: 'service', note: 'Thêm nước đá' }, T0)
+    expect(a.state.guestRequests![0]).toMatchObject({ id: 'c-1', kind: 'service', status: 'pending', lines: [], note: 'Thêm nước đá' })
+    expect(floorEvents(a.state, T0)[0].text).toBe('khách Bàn 5 gọi phục vụ: Thêm nước đá')
+    // calling again while the first is waiting follows the first
+    const b = E.placeGuestCall(a.state, token('t-5'), { id: 'c-2', kind: 'service' }, T0)
+    expect(b.id).toBe('c-1')
+    expect(b.state.guestRequests).toHaveLength(1)
+    const done = E.acceptGuestRequest(b.state, 'c-1', waiter)
+    expect(done.orderId).toBe('')
+    expect(done.state.guestRequests![0]).toMatchObject({ status: 'accepted', decidedBy: 'Hùng' })
+    expect(done.state.orders).toHaveLength(0)
+    expect(done.state.lines).toHaveLength(0)
+    // done: the next call is a new one
+    expect(E.placeGuestCall(done.state, token('t-5'), { id: 'c-3', kind: 'service' }, T0).id).toBe('c-3')
+  })
+
+  it('Gọi thanh toán needs dishes on the table and links the table order', () => {
+    const { s, token } = withQr()
+    expect(() => E.placeGuestCall(s, token('t-5'), { id: 'c-1', kind: 'bill' }, T0)).toThrow('chưa có món')
+    const seated = E.openTable(s, { tableId: 't-5', guestCount: 2 }, waiter)
+    const sent = E.sendLines(seated.state, seated.orderId, [beer], 'b-1', {}, waiter).state
+    const call = E.placeGuestCall(sent, token('t-5'), { id: 'c-1', kind: 'bill', note: 'Thanh toán chuyển khoản' }, T0)
+    expect(floorEvents(call.state, T0).find(e => e.kind === 'guest')?.text).toBe('khách Bàn 5 gọi thanh toán: Thanh toán chuyển khoản')
+    const done = E.acceptGuestRequest(call.state, 'c-1', waiter)
+    expect(done.orderId).toBe(seated.orderId)
+    expect(done.state.lines).toHaveLength(1)
+  })
+
   it('the guest page on sample data: menu, send, status with the table dishes after Nhận', async () => {
     const menuRepo = createMemoryMenuRepo()
     let actor: Actor = { name: 'Chủ quán', role: 'manager' }
@@ -107,5 +137,7 @@ describe('khách gọi món qua QR', () => {
     const st = await guest.status(token, ['g-1'])
     expect(st.requests[0].status).toBe('accepted')
     expect(st.lines).toEqual([expect.objectContaining({ name: 'Bia Tiger lon', qty: 4, price: 25000 })])
+    const billId = await guest.call(token, { id: 'c-1', kind: 'bill' })
+    expect((await guest.status(token, [billId])).requests).toEqual([expect.objectContaining({ id: 'c-1', kind: 'bill', status: 'pending' })])
   })
 })

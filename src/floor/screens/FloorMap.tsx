@@ -140,7 +140,7 @@ export function FloorMap(props: {
       </p>
       {guests.length > 0 && !showQr && (
         <a className="guest-alert" href="#/ban/khach" onClick={e => (e.preventDefault(), pickArea(QR))}>
-          🙋 {guests.length} yêu cầu gọi món từ khách ({[...guestTables].map(id => floor.tables.find(t => t.id === id)?.name ?? '?').join(', ')}): xem và xác nhận ›
+          🙋 {guests.length} yêu cầu từ khách ({[...guestTables].map(id => floor.tables.find(t => t.id === id)?.name ?? '?').join(', ')}): xem và xác nhận ›
         </a>
       )}
       <div className="floor-body">

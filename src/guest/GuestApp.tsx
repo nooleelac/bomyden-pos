@@ -1,5 +1,5 @@
 // Khách quét mã QR trên bàn (#/goi/<token>): the menu with sizes and options like the waiter's, a cart, Gửi gọi món,
-// then the request's state (Chờ nhân viên xác nhận → Đã nhận, bếp đang làm | Không nhận) and the table's dishes.
+// Gọi phục vụ and Gọi thanh toán under the header, then each request's state (Chờ nhân viên xác nhận → Đã nhận, bếp đang làm | Không nhận) and the table's dishes.
 // No sign-in: the token in the link is the table. Nothing reaches the kitchen until a waiter taps Nhận.
 
 import { useCallback, useEffect, useState } from 'react'
@@ -13,6 +13,7 @@ import { newId } from '../menu/repo'
 import { OrderScreen } from '../menu/screens/OrderScreen'
 import { Sheet } from '../floor/screens/Sheet'
 import './guest.css'
+import type { GuestRequestKind, GuestRequestStatus } from '../floor/types'
 import type { GuestRepo, GuestStatus, GuestView } from './repo'
 
 const POLL_MS = 5000
@@ -42,7 +43,17 @@ function useSentIds(token: string) {
   return [ids, add] as const
 }
 
-const REQUEST_LABEL = { pending: 'Chờ nhân viên xác nhận', accepted: 'Đã nhận, bếp đang làm', rejected: 'Nhân viên không nhận' } as const
+const REQUEST_LABEL: Record<GuestRequestKind, Record<GuestRequestStatus, string>> = {
+  order: { pending: 'Gọi món · chờ nhân viên xác nhận', accepted: 'Gọi món · đã nhận, bếp đang làm', rejected: 'Gọi món · nhân viên không nhận' },
+  bill: { pending: 'Gọi thanh toán · đã báo nhân viên', accepted: 'Gọi thanh toán · nhân viên đang tới', rejected: 'Gọi thanh toán · nhân viên không nhận' },
+  service: { pending: 'Gọi phục vụ · đã báo nhân viên', accepted: 'Gọi phục vụ · nhân viên đang tới', rejected: 'Gọi phục vụ · nhân viên không nhận' },
+}
+
+/** Quick picks for the note of a call. */
+const CALL_CHIPS = {
+  service: ['Thêm nước đá', 'Thêm chén đũa', 'Dọn bàn', 'Tư vấn món'],
+  bill: ['Tiền mặt', 'Chuyển khoản', 'Thẻ'],
+} as const
 
 export function GuestApp(props: { repo: GuestRepo; token: string }) {
   const { repo, token } = props
@@ -51,6 +62,7 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
   const [status, setStatus] = useState<GuestStatus | null>(null)
   const [tab, setTab] = useState<'menu' | 'sent'>('menu')
   const [confirm, setConfirm] = useState(false)
+  const [calling, setCalling] = useState<'bill' | 'service' | null>(null)
   const [toast, setToast] = useState<{ text: string; ok?: boolean } | null>(null)
   const [now, setNow] = useState(() => new Date())
   const cart = useCart(`bmd-guest-cart-${token}`)
@@ -107,6 +119,7 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
 
   const requests = status?.requests ?? []
   const waiting = requests.filter(r => r.status === 'pending').length
+  const called = (kind: GuestRequestKind) => requests.some(r => r.kind === kind && r.status === 'pending')
   const tableLines = status?.lines ?? []
   const tableTotal = tableLines.reduce((t, l) => t + l.price * l.qty, 0)
 
@@ -128,6 +141,14 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
         </nav>
       </header>
       {!view.isOpen && <div className="offline-bar">Quán đang ngoài giờ phục vụ</div>}
+      <div className="guest-calls">
+        <button type="button" className="btn" disabled={called('service')} onClick={() => setCalling('service')}>
+          🙋 {called('service') ? 'Đã gọi phục vụ' : 'Gọi phục vụ'}
+        </button>
+        <button type="button" className="btn" disabled={called('bill') || tableLines.length === 0} onClick={() => setCalling('bill')}>
+          🧾 {called('bill') ? 'Đã gọi thanh toán' : 'Gọi thanh toán'}
+        </button>
+      </div>
       {waiting > 0 && tab === 'menu' && (
         <button type="button" className="guest-wait" onClick={() => setTab('sent')}>
           ⏳ {waiting} yêu cầu đang chờ nhân viên xác nhận ›
@@ -144,7 +165,7 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
               <ul className="rows">
                 {[...requests].reverse().map(r => (
                   <li key={r.id} className={`guest-req st-${r.status}`}>
-                    <b>{REQUEST_LABEL[r.status]}</b>
+                    <b>{REQUEST_LABEL[r.kind][r.status]}</b>
                     <span className="muted small">
                       {new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                       {r.status === 'rejected' && r.reason ? ` · ${r.reason}` : ''}
@@ -201,6 +222,20 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
             setConfirm(false)
             setTab('sent')
             setToast({ text: 'Đã gửi. Nhân viên sẽ xác nhận trong giây lát.', ok: true })
+          }}
+          onError={m => setToast({ text: m })}
+        />
+      )}
+      {calling && (
+        <CallSheet
+          kind={calling}
+          tableName={view.tableName}
+          onClose={() => setCalling(null)}
+          onSend={async note => {
+            const id = await repo.call(token, { id: newId(), kind: calling, note })
+            addSent(id)
+            setCalling(null)
+            setToast({ text: calling === 'bill' ? 'Đã báo thu ngân, nhân viên sẽ mang hoá đơn tới.' : 'Đã báo nhân viên, vui lòng đợi trong giây lát.', ok: true })
           }}
           onError={m => setToast({ text: m })}
         />
@@ -282,6 +317,56 @@ function ConfirmSheet(props: {
         </div>
       </fieldset>
       <p className="muted small">Giá tạm tính theo thực đơn. Nhân viên xác nhận rồi món mới được làm.</p>
+    </Sheet>
+  )
+}
+
+function CallSheet(props: { kind: 'bill' | 'service'; tableName: string; onClose: () => void; onSend: (note: string) => Promise<void>; onError: (m: string) => void }) {
+  const bill = props.kind === 'bill'
+  const [note, setNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const send = () => {
+    setSending(true)
+    props
+      .onSend(note.trim())
+      .catch(e => props.onError(errText(e)))
+      .finally(() => setSending(false))
+  }
+  // bill: the chip is how the guest pays; service: what they need (several may be ticked)
+  const pick = (x: string) =>
+    setNote(prev => {
+      if (bill) return prev === `Thanh toán ${x.toLowerCase()}` ? '' : `Thanh toán ${x.toLowerCase()}`
+      const parts = prev ? prev.split(', ') : []
+      const next = parts.includes(x) ? parts.filter(p => p !== x) : [...parts, x]
+      return next.join(', ').slice(0, NOTE_MAX)
+    })
+  const on = (x: string) => (bill ? note === `Thanh toán ${x.toLowerCase()}` : note.split(', ').includes(x))
+  return (
+    <Sheet
+      title={bill ? 'Gọi thanh toán' : 'Gọi phục vụ'}
+      subtitle={`Bàn ${props.tableName}`}
+      onClose={props.onClose}
+      foot={
+        <button type="button" className="btn btn-primary btn-grow" disabled={sending} onClick={send}>
+          <span>{sending ? 'Đang gửi…' : bill ? 'Gọi thanh toán' : 'Gọi nhân viên'}</span>
+        </button>
+      }
+    >
+      <fieldset className="pick-group">
+        <legend>{bill ? 'Bạn muốn thanh toán bằng (không bắt buộc)' : 'Bạn cần gì? (không bắt buộc)'}</legend>
+        <div className="chip-row">
+          {CALL_CHIPS[props.kind].map(x => (
+            <button key={x} type="button" className={'chip' + (on(x) ? ' is-on' : '')} aria-pressed={on(x)} onClick={() => pick(x)}>
+              {x}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <label className="field">
+        <span className="field-label">Ghi chú thêm</span>
+        <input maxLength={NOTE_MAX} placeholder={bill ? 'VD: xuất hoá đơn công ty' : 'VD: thêm 2 ly đá'} value={note} onChange={e => setNote(e.target.value)} />
+      </label>
+      <p className="muted small">{bill ? 'Nhân viên sẽ mang hoá đơn tới bàn.' : 'Nhân viên sẽ tới bàn ngay.'}</p>
     </Sheet>
   )
 }

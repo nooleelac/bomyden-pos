@@ -70,12 +70,17 @@ export function floorEvents(s: FloorState, now: Date, hours = 12, max = 60): Flo
     if (recent(b.paidAt)) ev.push({ id: `paid-${b.id}`, kind: 'paid', at: b.paidAt, by: b.cashier, text: `thu ${vnd(b.total)} ${tableTitle(b.tableLabel)} (${b.billNo})`, href: `#/thu-ngan/hd/${b.id}` })
   }
 
-  // khách gọi món qua QR: only the ones still waiting (Nhận turns into a Gửi bếp)
+  // khách gọi qua QR: only the ones still waiting (Nhận turns into a Gửi bếp)
   for (const r of s.guestRequests ?? []) {
-    if (r.status === 'pending' && recent(r.createdAt)) {
-      const qty = r.lines.reduce((n, l) => n + l.qty, 0)
-      ev.push({ id: `guest-${r.id}`, kind: 'guest', at: r.createdAt, by: '', text: `khách ${tableTitle(tableName(s, r.tableId))} gọi ${qty} món qua QR: chờ xác nhận`, href: '#/ban/khach' })
-    }
+    if (r.status !== 'pending' || !recent(r.createdAt)) continue
+    const where = tableTitle(tableName(s, r.tableId))
+    const qty = r.lines.reduce((n, l) => n + l.qty, 0)
+    const note = r.note ? `: ${r.note}` : ''
+    const text =
+      r.kind === 'bill' ? `khách ${where} gọi thanh toán${note}`
+      : r.kind === 'service' ? `khách ${where} gọi phục vụ${note}`
+      : `khách ${where} gọi ${qty} món qua QR: chờ xác nhận`
+    ev.push({ id: `guest-${r.id}`, kind: 'guest', at: r.createdAt, by: '', text, href: '#/ban/khach' })
   }
 
   return ev.sort((a, b) => b.at.localeCompare(a.at)).slice(0, max)
