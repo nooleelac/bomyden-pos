@@ -13,7 +13,7 @@ import { isIdle, shouldTouch } from './idle'
 import { permMatrix, roleCan, setPermMatrix, type PermMatrix } from './permissions'
 import type { AuthRepo } from './repo'
 import { BlockedScreen, DeviceSetup, SignInScreen } from './screens'
-import { DEFAULT_AUTH_SETTINGS, type AuthSettings, type Device, type Session } from './types'
+import { DEFAULT_AUTH_SETTINGS, type AuthSettings, type BranchInfo, type Device, type Session } from './types'
 
 type Phase = { kind: 'loading' } | { kind: 'device'; off: Device | null } | { kind: 'signin' } | { kind: 'in'; session: Session }
 
@@ -24,6 +24,7 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
   const [settings, setSettings] = useState<AuthSettings>(DEFAULT_AUTH_SETTINGS)
   const [perms, setPerms] = useState<PermMatrix>(permMatrix)
   const [notice, setNotice] = useState('')
+  const [branch, setBranch] = useState<BranchInfo | null>(null)
   const [prompt, setPrompt] = useState<{ p: ApprovalPrompt; resolve: (a: Approved | null) => void } | null>(null)
   const route = useRoute()
   const lastActivity = useRef(Date.now())
@@ -45,10 +46,11 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
     lastTouch.current = Date.now()
     setNotice('')
     setPhase({ kind: 'in', session: s })
+    repo.myBranch().then(setBranch, () => setBranch(null))
     // land on a screen this person may open with the current permissions
     const land = () => fresh && go(homeRouteFor(s))
     loadPerms().then(land, land)
-  }, [loadPerms])
+  }, [repo, loadPerms])
   const leave = useCallback((why = '') => {
     setNotice(why)
     setPrompt(p => {
@@ -97,6 +99,7 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
       }, () => undefined)
       repo.settings().then(setSettings, () => undefined)
       loadPerms().catch(() => undefined)
+      repo.myBranch().then(setBranch, () => undefined)
     })
   }, [repo, signedIn, leave, loadPerms])
 
@@ -125,13 +128,19 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
     }
   }, [role, settings.idleMinutes, repo, leave])
 
+  // every screen keeps the old branch's data in memory: start over on the new one (the session keeps the choice)
+  const switchBranch = useCallback(async (id: string) => {
+    const b = await repo.switchBranch(id)
+    setBranch(b)
+    if (repo.source === 'supabase') location.reload()
+  }, [repo])
   const requestApproval = useCallback((p: ApprovalPrompt) => new Promise<Approved | null>(resolve => setPrompt({ p, resolve })), [])
   const value = useMemo<AuthValue | null>(
     () =>
       phase.kind === 'in' && device
-        ? { repo, session: phase.session, device, settings, perms, can: p => roleCan(phase.session.role, p, perms), signOut, requestApproval }
+        ? { repo, session: phase.session, device, settings, branch, switchBranch, perms, can: p => roleCan(phase.session.role, p, perms), signOut, requestApproval }
         : null,
-    [phase, device, repo, settings, perms, signOut, requestApproval],
+    [phase, device, repo, settings, branch, switchBranch, perms, signOut, requestApproval],
   )
 
   if (phase.kind === 'loading') return <p className="auth-loading">Đang kết nối…</p>

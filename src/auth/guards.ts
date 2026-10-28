@@ -8,7 +8,7 @@ import { ROLES, type Role } from './types'
 /** Manager or owner by role (labels only; what someone may do comes from their permissions). */
 export const isManager = (r: Role | null | undefined): boolean => r === 'manager' || r === 'owner'
 
-export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'print-settings' | 'receipt-template' | 'orders' | 'bills' | 'revenue'
+export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'print-settings' | 'receipt-template' | 'branches' | 'opening-hours' | 'orders' | 'bills' | 'revenue'
 
 /** A screen opens with any one of these permissions. */
 const ACCESS: Record<Screen, Perm[]> = {
@@ -26,6 +26,9 @@ const ACCESS: Record<Screen, Perm[]> = {
   // the printer is set per device, by whoever works the till
   'print-settings': ['pay.collect', 'shift.manage', 'settings.edit'],
   'receipt-template': ['settings.edit'],
+  // the owner's only (canOpen), whatever the permission table says
+  branches: [],
+  'opening-hours': ['settings.edit'],
   orders: ['order.take'],
   // the database shows bills and payments to pay.collect or shift.manage (0009); Doanh thu goes with Xem nhật ký
   // (owner and manager by default)
@@ -47,6 +50,8 @@ export const SCREEN_LABEL: Record<Screen, string> = {
   'payment-settings': 'Thanh toán',
   'print-settings': 'Máy in',
   'receipt-template': 'Mẫu in',
+  branches: 'Chi nhánh',
+  'opening-hours': 'Giờ làm việc',
   orders: 'Đơn',
   bills: 'Quản lý hoá đơn',
   revenue: 'Quản lý doanh thu',
@@ -60,7 +65,7 @@ export function screenOf(route: string[]): Screen {
   if (top === 'thu-ngan') return 'cashier'
   if (top === 'ca') return 'shift'
   if (top === 'nhan-vien') return 'staff'
-  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : sub === 'may-in' ? 'print-settings' : sub === 'mau-in' ? 'receipt-template' : 'settings'
+  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : sub === 'may-in' ? 'print-settings' : sub === 'mau-in' ? 'receipt-template' : sub === 'chi-nhanh' ? 'branches' : sub === 'gio-lam' ? 'opening-hours' : 'settings'
   if (top === 'don') return 'orders'
   if (top === 'hoa-don') return 'bills'
   if (top === 'doanh-thu') return 'revenue'
@@ -73,6 +78,7 @@ export function screenOf(route: string[]): Screen {
 export function canOpen(role: Role | null | undefined, route: string[] | Screen, m?: PermMatrix): boolean {
   if (!role) return false
   const screen = Array.isArray(route) ? screenOf(route) : route
+  if (screen === 'branches') return role === 'owner'
   return roleCanAny(role, ACCESS[screen], m)
 }
 
@@ -118,6 +124,8 @@ export function settingsFor(role: Role): (NavItem & { hint: string })[] {
     { href: '#/cai-dat/thanh-toan', label: 'Thanh toán', icon: '💳', hint: 'Tiền mặt, ngân hàng, thẻ, thuế', screen: 'payment-settings' },
     { href: '#/cai-dat/may-in', label: 'Máy in', icon: '🖨', hint: 'Khổ giấy, cỡ chữ, in đậm, in thử', screen: 'print-settings' },
     { href: '#/cai-dat/mau-in', label: 'Mẫu in', icon: '🧾', hint: 'Tên quán, tiêu đề, lời cảm ơn, cỡ chữ từng phần', screen: 'receipt-template' },
+    { href: '#/cai-dat/gio-lam', label: 'Giờ làm việc', icon: '⏰', hint: 'Giờ mở cửa từng ngày, chặn gọi món ngoài giờ, giờ chốt ngày', screen: 'opening-hours' },
+    { href: '#/cai-dat/chi-nhanh', label: 'Chi nhánh', icon: '🏬', hint: 'Thêm chi nhánh, chép thực đơn, đổi chi nhánh làm việc', screen: 'branches' },
     { href: '#/nhan-vien', label: 'Nhân viên', icon: '👥', hint: role === 'owner' ? 'Nhân viên, phân quyền, PIN, máy, nhật ký' : 'Nhân viên, PIN, máy, nhật ký', screen: 'staff' },
   ]
   return all.filter(i => canOpen(role, i.screen))

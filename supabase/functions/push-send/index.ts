@@ -1,5 +1,6 @@
 // push-send: one event from the database (push_outbox_flush in migration 0015) → a Web Push to every subscribed
-// browser, except the device that did it (exclude_device) or only to one device (only_device, "Gửi thử").
+// browser of the branch where it happened (branch_id, 0022), except the device that did it (exclude_device), or only
+// to one device (only_device, "Gửi thử").
 // Called by pg_net with the shared secret in x-push-secret, so it is deployed without JWT verification.
 // Subscriptions the push service says are gone (404 / 410) are deleted.
 
@@ -15,6 +16,8 @@ interface Event {
   tag: string
   exclude_device: string | null
   only_device: string | null
+  /** 0022: the branch of the event; older events have none and go to every branch. */
+  branch_id?: string | null
 }
 
 Deno.serve(async req => {
@@ -24,9 +27,12 @@ Deno.serve(async req => {
   if (!cfg.hook_secret || req.headers.get('x-push-secret') !== cfg.hook_secret) return new Response('forbidden', { status: 403 })
 
   const ev = (await req.json()) as Event
-  let q = db.from('push_subscriptions').select('endpoint, p256dh, auth, device_id')
+  let q = db.from('push_subscriptions').select('endpoint, p256dh, auth, device_id, devices!inner(branch_id)')
   if (ev.only_device) q = q.eq('device_id', ev.only_device)
-  else if (ev.exclude_device) q = q.neq('device_id', ev.exclude_device)
+  else {
+    if (ev.exclude_device) q = q.neq('device_id', ev.exclude_device)
+    if (ev.branch_id) q = q.eq('devices.branch_id', ev.branch_id)
+  }
   const { data: subs, error: subErr } = await q
   if (subErr) return new Response(subErr.message, { status: 500 })
 

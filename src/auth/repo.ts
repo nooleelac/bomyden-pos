@@ -4,7 +4,7 @@
 
 import type { Perm, PermMatrix, PermRole } from './permissions'
 import type {
-  ApprovalRequest, ApprovalResult, AuditEntry, AuthSettings, Device, DeviceCode, DeviceKind, RosterEntry, Session, SignInResult, StaffInput, StaffRecord,
+  ApprovalRequest, ApprovalResult, AuditEntry, AuthSettings, Branch, BranchInfo, BranchInput, Device, DeviceCode, DeviceKind, OpeningHours, RosterEntry, Session, SignInResult, StaffInput, StaffRecord,
 } from './types'
 
 export interface DeviceRow extends Device {
@@ -35,7 +35,8 @@ export interface AuthRepo {
   resetPin(staffId: string, pin: string): Promise<void>
   setStaffActive(staffId: string, active: boolean): Promise<void>
   devices(): Promise<DeviceRow[]>
-  createDeviceCode(name: string, kind: DeviceKind): Promise<DeviceCode>
+  /** A code for a device of this branch, or of `branchId` (owner). */
+  createDeviceCode(name: string, kind: DeviceKind, branchId?: string): Promise<DeviceCode>
   setDeviceActive(id: string, active: boolean): Promise<void>
   /**
    * Xoá vĩnh viễn (admin.delete, admin_delete in 0010): a person with their PIN and sessions (not oneself, not the
@@ -47,6 +48,16 @@ export interface AuthRepo {
   permissions(): Promise<PermMatrix>
   /** Owner only: replace one role's permissions. Resolves with what the role has now. */
   savePermissions(role: PermRole, perms: Perm[]): Promise<Perm[]>
+  /** The branch this session works in (0022); null when not signed in. */
+  myBranch(): Promise<BranchInfo | null>
+  /** Owner: every branch; others: their own. */
+  branches(): Promise<Branch[]>
+  /** Owner: work in another branch on this device until signing out. */
+  switchBranch(id: string): Promise<BranchInfo>
+  /** Owner: add a branch (optionally with another branch's menu), rename, close or reopen one. Resolves with its id. */
+  saveBranch(inp: BranchInput): Promise<string>
+  /** settings.edit: this branch's opening hours, whether they are enforced, and where its business day starts. */
+  saveOpeningHours(hours: OpeningHours, enforce: boolean, dayStart: string): Promise<void>
   /** Staff, device or permission changes from any tab/device. Returns unsubscribe. */
   subscribe(onChange: () => void): () => void
   /** Sample only: the sample PINs shown on the sign-in screen. */

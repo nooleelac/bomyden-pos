@@ -313,3 +313,7 @@
 .table-tile.st-paying { background: var(--st-paying); }
 .order-card.st-paying { border-top-color: var(--st-paying); }
 .order-card.st-paying .order-card-tag { background: var(--st-paying); }
+/* the branch under the shop name (0022) */
+.topbar .brand-branch { display: block; font-size: 11px; font-weight: 600; color: var(--slate); line-height: 1.1; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
+.drawer-branch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 14px; color: var(--slate); }
+.drawer-branch select { flex: 1; min-width: 0; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }

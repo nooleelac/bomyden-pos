@@ -214,7 +214,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       return r[0] ? { name: s(r[0].name), role: r[0].role as Role } : null
     },
     subscribe(onChange) {
-      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'shop_settings']
+      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings']
       const off = liveTables(db, 'floor-changes', tables, () => onChange(), 15_000)
       listeners.add(onChange)
       return () => {

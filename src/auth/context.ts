@@ -3,7 +3,7 @@
 import { createContext, useContext } from 'react'
 import type { Perm, PermMatrix } from './permissions'
 import type { AuthRepo } from './repo'
-import type { ApprovalRequest, AuthSettings, Device, Session } from './types'
+import type { ApprovalRequest, AuthSettings, BranchInfo, Device, Session } from './types'
 
 export interface ApprovalPrompt extends ApprovalRequest {
   /** What is being approved, e.g. "Huỷ 2 Steak bò nướng". */
@@ -22,6 +22,10 @@ export interface AuthValue {
   session: Session
   device: Device
   settings: AuthSettings
+  /** The branch this session works in (0022); null until loaded. */
+  branch: BranchInfo | null
+  /** Owner: work in another branch (every screen reloads with that branch's data). */
+  switchBranch: (id: string) => Promise<void>
   /** What each role may do (the owner: everything). */
   perms: PermMatrix
   /** May the signed-in person do this? */

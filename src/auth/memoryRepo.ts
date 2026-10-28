@@ -5,11 +5,12 @@
 
 import { newId } from '../menu/repo'
 import { APPROVAL_PERM, DEFAULT_PERMS, PERM_LABEL, PERM_ROLES, cleanPerms, roleCan, type Perm, type PermMatrix } from './permissions'
+import { hoursProblem, isOpenAt } from './branch'
 import { attemptPin, isLocked, pinProblem, type PinState } from './pin'
 import type { AuthRepo, DeviceRow } from './repo'
 import {
   DEFAULT_AUTH_SETTINGS, ROLE_LABEL,
-  type ApprovalRequest, type ApprovalResult, type AuditEntry, type AuthSettings, type DeviceCode, type DeviceKind, type Role,
+  type ApprovalRequest, type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type DeviceCode, type DeviceKind, type Role,
   type RosterEntry, type Session, type SignInResult, type StaffRecord,
 } from './types'
 
@@ -50,6 +51,8 @@ interface Store {
   audit: AuditRow[]
   /** What each role may do (0009); missing in stores saved before it: the defaults. */
   perms?: PermMatrix
+  /** Chi nhánh (0022). The sample keeps one menu and floor for all of them: only the list, hours and switching. */
+  branches?: Branch[]
 }
 interface Approval extends ApprovalRequest {
   token: string
@@ -111,6 +114,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
   let myToken: string | null = null
   let myDeviceId: string | null = null
   let channel: BroadcastChannel | null = null
+  let myBranchId: string | null = null // the owner's switch, this tab only
 
   const changed = () => queueMicrotask(() => listeners.forEach(l => l()))
   const save = () => {
@@ -186,6 +190,14 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
   const db = async () => {
     await init()
     return store!
+  }
+  const branchesOf = (s: Store): Branch[] =>
+    (s.branches ??= [{ id: 'br-main', name: 'Chi nhánh chính', active: true, address: '', phone: '', openingHours: {}, enforceHours: false, businessDayStart: '06:00', staff: 0, devices: 0, items: 0 }])
+  const branchInfo = (s: Store): BranchInfo | null => {
+    const list = branchesOf(s)
+    const b = list.find(x => x.id === myBranchId && x.active) ?? list[0]
+    const who = me(s)
+    return who ? { id: b.id, name: b.name, deviceBranchId: list[0].id, canSwitch: who.role === 'owner', isOpen: isOpenAt(b.openingHours, now()) } : null
   }
 
   const device = (s: Store) => s.devices.find(d => d.id === myDeviceId && d.active) ?? null
@@ -519,6 +531,54 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       if (added.length || removed.length) audit(s, 'permissions', { role, added, removed })
       save()
       return [...next]
+    },
+    async myBranch() {
+      return branchInfo(await db())
+    },
+    async branches() {
+      const s = await db()
+      const list = branchesOf(s).map(b => ({ ...b, staff: s.staff.filter(x => x.active).length, devices: s.devices.filter(d => d.active).length }))
+      return me(s)?.role === 'owner' ? list : list.filter(b => b.id === branchInfo(s)?.id)
+    },
+    async switchBranch(id) {
+      const s = await db()
+      if (me(s)?.role !== 'owner') fail('Chỉ chủ quán đổi chi nhánh')
+      if (!branchesOf(s).some(b => b.id === id && b.active)) fail('Chi nhánh không tồn tại hoặc đã đóng')
+      myBranchId = id
+      changed()
+      return branchInfo(s)!
+    },
+    async saveBranch(inp) {
+      const s = await db()
+      if (me(s)?.role !== 'owner') fail('Chỉ chủ quán quản lý chi nhánh')
+      const name = inp.name.trim()
+      if (name.length < 1 || name.length > 40) fail('Nhập tên chi nhánh (tối đa 40 ký tự)')
+      const list = branchesOf(s)
+      if (list.some(b => b.id !== inp.id && b.name.toLowerCase() === name.toLowerCase())) fail(`Đã có chi nhánh tên "${name}"`)
+      let b = list.find(x => x.id === inp.id)
+      if (inp.id && !b) fail('Không tìm thấy chi nhánh')
+      if (b) {
+        if (inp.active === false && !list.some(x => x.active && x.id !== b!.id)) fail('Phải còn ít nhất một chi nhánh mở')
+        b.name = name
+        b.active = inp.active ?? true
+        if (!b.active && myBranchId === b.id) myBranchId = null
+      } else {
+        b = { ...list[0], id: newId(), name, active: true, openingHours: {}, enforceHours: false }
+        list.push(b)
+      }
+      audit(s, inp.id ? 'branch_edit' : 'branch_add', { name })
+      save()
+      return b.id
+    },
+    async saveOpeningHours(hours, enforce, dayStart) {
+      const s = await db()
+      requirePerm(s, 'settings.edit')
+      const bad = hoursProblem(hours)
+      if (bad) fail(bad)
+      const b = branchesOf(s).find(x => x.id === branchInfo(s)?.id) ?? fail('Không tìm thấy chi nhánh')
+      Object.assign(b, { openingHours: hours, enforceHours: enforce, businessDayStart: dayStart })
+      audit(s, 'opening_hours', { enforce })
+      save()
     },
     subscribe(fn) {
       listeners.add(fn)

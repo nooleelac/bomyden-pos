@@ -3,6 +3,7 @@
 // #/cai-dat/thanh-toan: payment methods, bank account, VAT (PaymentSettings).
 // #/cai-dat/may-in: this device's receipt printer (PrintSettings).
 // #/cai-dat/mau-in: the shop's receipt words and sizes (ReceiptTemplateSettings).
+// #/cai-dat/chi-nhanh: the owner's branches; #/cai-dat/gio-lam: this branch's opening hours (BranchSettings).
 
 import { useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { SettingsBack, TopBar } from '../auth/chrome'
@@ -14,6 +15,7 @@ import type { FloorState } from '../floor/types'
 import '../menu/menu.css'
 import '../floor/floor.css'
 import '../auth/auth.css'
+import { BranchesPage, OpeningHoursPage } from './BranchSettings'
 import { PaymentSettings } from './PaymentSettings'
 import { PrintSettingsPage } from './PrintSettings'
 import { ReceiptTemplateSettings } from './ReceiptTemplateSettings'
@@ -31,6 +33,8 @@ export function SettingsApp() {
         {(floor, onError, onInfo) => <ReceiptTemplateSettings floor={floor} repo={repos.floor} onError={onError} onInfo={onInfo} />}
       </PaymentPage>
     )
+  if (route[1] === 'chi-nhanh') return <ToastPage>{(onError, onInfo) => <BranchesPage onError={onError} onInfo={onInfo} />}</ToastPage>
+  if (route[1] === 'gio-lam') return <ToastPage>{(onError, onInfo) => <OpeningHoursPage onError={onError} onInfo={onInfo} />}</ToastPage>
   const items = settingsFor(session.role)
   return (
     <div className="menu-app floor-app">
@@ -51,6 +55,30 @@ export function SettingsApp() {
           ))}
         </div>
       </main>
+    </div>
+  )
+}
+
+/** A settings page with a toast. */
+function ToastPage(props: { children: (onError: (m: string) => void, onInfo: (m: string) => void) => ReactNode }) {
+  const [toast, setToast] = useState<{ text: string; ok?: boolean } | null>(null)
+  const onError = useCallback((m: string) => setToast({ text: m }), [])
+  const onInfo = useCallback((m: string) => setToast({ text: m, ok: true }), [])
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), toast.ok ? 2500 : 5000)
+    return () => clearTimeout(t)
+  }, [toast])
+  return (
+    <div className="menu-app floor-app">
+      <TopBar />
+      <SettingsBack />
+      <main className="settings-main">{props.children(onError, onInfo)}</main>
+      {toast && (
+        <div className={'toast' + (toast.ok ? ' toast-ok' : '')} role={toast.ok ? 'status' : 'alert'} onClick={() => setToast(null)}>
+          {toast.text}
+        </div>
+      )}
     </div>
   )
 }

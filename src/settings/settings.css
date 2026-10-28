@@ -65,3 +65,24 @@
 .agent-code { display: grid; gap: 6px; margin-top: 6px; }
 .agent-code textarea { width: 100%; font-family: monospace; font-size: 12px; word-break: break-all; }
 .print-steps code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+
+/* Cài đặt → Chi nhánh, Giờ làm việc (0022) */
+.branch-settings { max-width: 760px; }
+.branch-list { list-style: none; margin: 12px 0 16px; padding: 0; display: grid; gap: 10px; }
+.branch-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--surface); }
+.branch-card.is-here { border-color: var(--accent); }
+.branch-card.is-off { opacity: .7; }
+.branch-card p { margin: 4px 0 0; }
+.branch-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.branch-name { font-size: 17px; }
+.branch-name-input { flex: 1; min-width: 160px; }
+.branch-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-off { margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--bg); color: var(--muted, #666); font-weight: 600; }
+.branch-settings select { width: 100%; }
+.hours-list { list-style: none; margin: 8px 0 12px; padding: 0; }
+.hours-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.hours-row:first-child { border-top: 0; }
+.hours-day { display: flex; align-items: center; gap: 10px; min-width: 120px; }
+.hours-day input { width: 20px; height: 20px; }
+.hours-times { display: flex; align-items: center; gap: 6px; }
+.hours-times input { width: 120px; }

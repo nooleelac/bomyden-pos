@@ -6,7 +6,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './context'
 import { SCREEN_LABEL, canOpen, homeRoute, isSettingsScreen, manageFor, navFor, screenOf, settingsFor } from './guards'
-import { ROLE_LABEL } from './types'
+import { ROLE_LABEL, type Branch } from './types'
 import { ReposContext, useNow, useRoute, useSource } from '../floor/hooks'
 import { clock } from '../floor/logic'
 import { EVENT_ICON, floorEvents, type FloorEvent } from '../floor/notify'
@@ -39,12 +39,13 @@ export function TopBar() {
   )
 }
 
-/** Shop name: tapping it always goes home (Bàn; the kitchen screen for kitchen accounts). */
+/** Shop name and the branch this device works in: tapping it always goes home (Bàn; the kitchen screen for kitchen accounts). */
 export function Brand() {
-  const { session } = useAuth()
+  const { session, branch } = useAuth()
   return (
     <a className="brand" href={'#/' + (canOpen(session.role, 'floor') ? 'ban' : homeRoute(session.role))} title="Về trang chủ">
       Bò Mỹ Đen
+      {branch && <span className="brand-branch">{branch.name}</span>}
     </a>
   )
 }
@@ -210,7 +211,7 @@ export function BottomNav() {
 }
 
 function Drawer(props: { onClose: () => void }) {
-  const { session, signOut } = useAuth()
+  const { session, signOut, branch } = useAuth()
   const items = settingsFor(session.role)
   const manage = manageFor(session.role)
   return (
@@ -218,6 +219,7 @@ function Drawer(props: { onClose: () => void }) {
       <aside className="drawer" aria-label="Menu" onClick={e => e.stopPropagation()}>
         <div className="drawer-head">
           <b className="drawer-shop">BÒ MỸ ĐEN</b>
+          {branch && <BranchPicker />}
           <div className="drawer-user">
             <span className="drawer-avatar" aria-hidden>
               {session.name.trim().slice(0, 2).toUpperCase()}
@@ -256,6 +258,44 @@ function Drawer(props: { onClose: () => void }) {
         </button>
       </aside>
     </div>
+  )
+}
+
+/** In the drawer: the branch this device works in; owners pick another one here. */
+function BranchPicker() {
+  const { repo, branch, switchBranch } = useAuth()
+  const [list, setList] = useState<Branch[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (branch?.canSwitch) repo.branches().then(setList, () => setList(null))
+  }, [repo, branch?.canSwitch])
+  if (!branch) return null
+  const open = list?.filter(b => b.active) ?? []
+  if (!branch.canSwitch || open.length < 2) {
+    return <span className="drawer-branch">🏬 {branch.name}{!branch.isOpen && <span className="muted"> · ngoài giờ</span>}</span>
+  }
+  return (
+    <label className="drawer-branch">
+      <span aria-hidden>🏬</span>
+      <select
+        value={branch.id}
+        disabled={busy}
+        aria-label="Chi nhánh làm việc"
+        onChange={e => {
+          setBusy(true)
+          setError('')
+          switchBranch(e.target.value).catch(x => setError((x as Error).message)).finally(() => setBusy(false))
+        }}
+      >
+        {open.map(b => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+      </select>
+      {error && <span className="small push-error">{error}</span>}
+    </label>
   )
 }
 

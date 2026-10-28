@@ -15,7 +15,7 @@ import { roleCan } from './permissions'
 import { PermissionsScreen } from './PermissionsScreen'
 import { pinProblem } from './pin'
 import type { DeviceRow } from './repo'
-import { ROLE_LABEL, ROLES, type AuditEntry, type AuthSettings, type DeviceCode, type DeviceKind, type Role, type StaffRecord } from './types'
+import { ROLE_LABEL, ROLES, type AuditEntry, type AuthSettings, type Branch, type DeviceCode, type DeviceKind, type Role, type StaffRecord } from './types'
 
 const TABS = [
   { id: '', label: 'Nhân viên' },
@@ -318,7 +318,15 @@ function PinSheet(props: { who: StaffRecord; onClose: () => void; onSave: (pin: 
 }
 
 function Devices(props: Notify) {
-  const { repo, device, session } = useAuth()
+  const { repo, device, session, branch } = useAuth()
+  // owners make codes for any open branch; the device joins that branch for good
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [forBranch, setForBranch] = useState('')
+  useEffect(() => {
+    if (branch?.canSwitch) repo.branches().then(l => setBranches(l.filter(b => b.active)), () => undefined)
+  }, [repo, branch?.canSwitch])
+  const target = forBranch || branch?.id || ''
+  const targetName = branches.find(b => b.id === target)?.name ?? branch?.name ?? ''
   const [list, setList] = useState<DeviceRow[] | null>(null)
   const purge = roleCan(session.role, 'admin.delete')
   const [name, setName] = useState('')
@@ -332,8 +340,10 @@ function Devices(props: Notify) {
   }, [repo, load])
   return (
     <section className="screen">
-      <h1>Máy</h1>
-      <p className="muted small">Mỗi máy tính bảng, máy POS, màn bếp đăng ký một lần bằng mã. Mất máy thì khoá máy: mọi người trên máy đó bị đăng xuất.</p>
+      <h1>Máy{branch ? ` · ${branch.name}` : ''}</h1>
+      <p className="muted small">
+        Mỗi máy tính bảng, máy POS, màn bếp đăng ký một lần bằng mã và thuộc luôn chi nhánh của mã đó. Mất máy thì khoá máy: mọi người trên máy đó bị đăng xuất.
+      </p>
       <ul className="staff-list">
         {(list ?? []).map(d => (
           <li key={d.id} className={'card staff-row' + (d.active ? '' : ' is-off')}>
@@ -390,9 +400,21 @@ function Devices(props: Notify) {
               </button>
             </div>
           </div>
+          {branches.length > 1 && (
+            <label className="field">
+              <span className="field-label">Chi nhánh</span>
+              <select value={target} onChange={e => setForBranch(e.target.value)}>
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div className="btn-row">
-          <button type="button" className="btn btn-primary" disabled={!name.trim()} onClick={() => repo.createDeviceCode(name, kind).then(setCode, onError)}>
+          <button type="button" className="btn btn-primary" disabled={!name.trim()} onClick={() => repo.createDeviceCode(name, kind, target || undefined).then(setCode, onError)}>
             Tạo mã đăng ký
           </button>
         </div>
@@ -402,6 +424,7 @@ function Devices(props: Notify) {
             <b>{code.code}</b>
             <span className="small">
               {code.name} · {code.kind === 'kitchen' ? 'Màn bếp' : 'Máy bán hàng'}
+              {targetName && ` · ${targetName}`}
             </span>
           </div>
         )}

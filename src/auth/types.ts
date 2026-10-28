@@ -22,6 +22,48 @@ export interface Device {
   name: string
   kind: DeviceKind
   active: boolean
+  /** The branch this device was registered for (0022). */
+  branchName?: string
+}
+
+/** Opening hours by ISO weekday ('1' = Thứ Hai … '7' = Chủ nhật), HH:MM; a missing day is closed, {} = no hours set. */
+export type Weekday = '1' | '2' | '3' | '4' | '5' | '6' | '7'
+export type OpeningHours = Partial<Record<Weekday, { open: string; close: string }>>
+
+/** A row on Cài đặt → Chi nhánh (0022). */
+export interface Branch {
+  id: string
+  name: string
+  active: boolean
+  address: string
+  phone: string
+  openingHours: OpeningHours
+  /** Outside the hours only quản lý / chủ quán open tables or takeaway orders. */
+  enforceHours: boolean
+  /** HH:MM where the business day (reports, takeaway numbers) starts. */
+  businessDayStart: string
+  staff: number
+  devices: number
+  items: number
+}
+
+/** The branch this session works in: the device's, or the one the owner switched to. */
+export interface BranchInfo {
+  id: string
+  name: string
+  deviceBranchId: string | null
+  /** Owners may work in any branch. */
+  canSwitch: boolean
+  /** Inside the opening hours now (or no hours set). */
+  isOpen: boolean
+}
+
+export interface BranchInput {
+  id?: string
+  name: string
+  active?: boolean
+  /** New branch: copy this branch's menu (dishes, groups, options, stations). */
+  copyFrom?: string | null
 }
 
 /** A name on the sign-in screen. */

@@ -10,7 +10,7 @@ import type { AuthRepo, DeviceRow } from './repo'
 import { staffToken } from './token'
 import {
   DEFAULT_AUTH_SETTINGS,
-  type ApprovalResult, type AuditEntry, type AuthSettings, type Device, type Role, type RosterEntry, type Session, type SignInResult, type StaffRecord,
+  type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type Device, type OpeningHours, type Role, type RosterEntry, type Session, type SignInResult, type StaffRecord,
 } from './types'
 import { liveTables } from '../lib/live'
 
@@ -55,7 +55,12 @@ function stored(): Session | null {
 }
 
 export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
-  const toDevice = (d: Row): Device => ({ id: s(d.id), name: s(d.name), kind: d.kind === 'kitchen' ? 'kitchen' : 'pos', active: d.active !== false })
+  const toDevice = (d: Row): Device => ({
+    id: s(d.id), name: s(d.name), kind: d.kind === 'kitchen' ? 'kitchen' : 'pos', active: d.active !== false, ...(d.branch_name ? { branchName: s(d.branch_name) } : {}),
+  })
+  const toInfo = (r: Row): BranchInfo => ({
+    id: s(r.id), name: s(r.name), deviceBranchId: sn(r.device_branch_id), canSwitch: r.can_switch === true, isOpen: r.is_open !== false,
+  })
   return {
     source: 'supabase',
     async device() {
@@ -152,8 +157,8 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
     async devices() {
       return (await rows(db.from('devices').select('id, name, kind, active, last_seen_at').order('registered_at'))).map((d): DeviceRow => ({ ...toDevice(d), lastSeenAt: sn(d.last_seen_at) }))
     },
-    async createDeviceCode(name, kind) {
-      const r = await rpc<Row>(db, 'create_device_code', { p_name: name, p_kind: kind })
+    async createDeviceCode(name, kind, branchId) {
+      const r = await rpc<Row>(db, 'create_device_code', { p_name: name, p_kind: kind, ...(branchId ? { p_branch: branchId } : {}) })
       return { code: s(r.code), name: s(r.name), kind, expiresAt: s(r.expires_at) }
     },
     setDeviceActive: async (id, active) => void (await rpc(db, 'device_set_active', { p_device: id, p_active: active })),
@@ -178,8 +183,25 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
       const r = await rpc<string[]>(db, 'set_role_permissions', { p_role: role, p_perms: perms })
       return normalizeMatrix({ [role]: r ?? [] })[role]
     },
+    async myBranch() {
+      const r = await rpc<Row | null>(db, 'my_branch')
+      return r ? toInfo(r) : null
+    },
+    async branches() {
+      return (await rpc<Row[]>(db, 'branches_list')).map((r): Branch => ({
+        id: s(r.id), name: s(r.name), active: r.active !== false, address: s(r.address), phone: s(r.phone),
+        openingHours: (r.opening_hours as OpeningHours) ?? {}, enforceHours: r.enforce_hours === true, businessDayStart: s(r.business_day_start) || '06:00',
+        staff: Number(r.staff ?? 0), devices: Number(r.devices ?? 0), items: Number(r.items ?? 0),
+      }))
+    },
+    switchBranch: async id => toInfo(await rpc<Row>(db, 'switch_branch', { p_branch: id })),
+    async saveBranch(inp) {
+      const r = await rpc<Row>(db, 'branch_save', { p_id: inp.id ?? null, p_name: inp.name, p_active: inp.active ?? true, p_copy_from: inp.copyFrom ?? null })
+      return s(r.id)
+    },
+    saveOpeningHours: async (hours, enforce, dayStart) => void (await rpc(db, 'save_opening_hours', { p_hours: hours, p_enforce: enforce, p_day_start: dayStart })),
     subscribe(onChange) {
-      return liveTables(db, 'staff-changes', ['staff', 'devices', 'role_permissions'], onChange, 300_000)
+      return liveTables(db, 'staff-changes', ['staff', 'devices', 'role_permissions', 'branches'], onChange, 300_000)
     },
   }
 }
