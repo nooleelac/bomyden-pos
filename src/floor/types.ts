@@ -3,6 +3,7 @@
 
 import type { ReceiptTemplate } from '../cashier/template'
 import type { PayMethod } from '../lib/billing'
+import type { GuestGeo } from '../lib/geo'
 import type { RoundingMode, VatGroup } from '../lib/pricing'
 
 export interface Area {
@@ -212,6 +213,8 @@ export interface FloorSettings {
   guestOrder?: boolean
   /** Quick picks on Gọi phục vụ / Gọi thanh toán (0025); a missing list = DEFAULT_CALL_CHIPS. */
   guestCallChips?: Partial<CallChips>
+  /** Chống phá (0026): the shop's position and the radius guests must be within; on only when all three are set. */
+  guestGeo?: GuestGeoSettings
 }
 
 export interface FloorState {
@@ -242,6 +245,17 @@ export type GuestRequestKind = 'order' | 'bill' | 'service'
 
 /** The quick picks a guest taps when calling: what they need (phục vụ), how they pay (thanh toán). */
 export type CallChips = Record<'service' | 'bill', string[]>
+
+/** Cài đặt → Mã QR gọi món → Chống phá: the position is kept when the radius is turned off (null). */
+export interface GuestGeoSettings {
+  lat: number | null
+  lng: number | null
+  radius: number | null
+}
+
+/** The geofence in force, or null (off). */
+export const activeGeo = (g: GuestGeoSettings | null | undefined): GuestGeo | null =>
+  g && g.lat != null && g.lng != null && g.radius != null ? { lat: g.lat, lng: g.lng, radius: g.radius } : null
 export const DEFAULT_CALL_CHIPS: CallChips = {
   service: ['Thêm nước đá', 'Thêm chén đũa', 'Dọn bàn', 'Tư vấn món'],
   bill: ['Tiền mặt', 'Chuyển khoản', 'Thẻ'],

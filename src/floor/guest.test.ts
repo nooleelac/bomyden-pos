@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryGuestRepo } from '../guest/repo'
+import { distanceM, geoProblem, parseLatLng } from '../lib/geo'
 import { createMemoryMenuRepo } from '../menu/repo'
 import { seedMenu } from '../menu/seed'
 import * as E from './engine'
@@ -131,6 +132,36 @@ describe('khách gọi món qua QR', () => {
     expect(() => E.setGuestCallChips(s, DEFAULT_CALL_CHIPS, waiter)).toThrow('Chưa có quyền')
   })
 
+  it('chống phá: with a radius set, only a phone close enough orders or calls', () => {
+    const { s, token } = withQr()
+    const shop = { lat: 10.7769, lng: 106.7009 }
+    const near = { lat: 10.7772, lng: 106.7011, acc: 20 } // ~40 m
+    const far = { lat: 10.7869, lng: 106.7009, acc: 20 } // ~1.1 km
+    expect(() => E.setGuestGeo(s, { lat: null, lng: null, radius: 100 }, manager)).toThrow('Lấy vị trí quán')
+    expect(() => E.setGuestGeo(s, { ...shop, radius: 10 }, manager)).toThrow('từ 20 đến 5000')
+    expect(() => E.setGuestGeo(s, { ...shop, radius: 100 }, waiter)).toThrow('Chưa có quyền')
+    const g = E.setGuestGeo(s, { ...shop, radius: 100 }, manager)
+    expect(() => E.placeGuestOrder(g, token('t-5'), { id: 'g-1', lines: [beer] }, menu, T0)).toThrow('Cần bật định vị')
+    expect(() => E.placeGuestOrder(g, token('t-5'), { id: 'g-1', lines: [beer], fix: far }, menu, T0)).toThrow('cách quán khoảng 1100 m')
+    expect(() => E.placeGuestCall(g, token('t-5'), { id: 'c-1', kind: 'service', fix: far }, T0)).toThrow('cách quán')
+    expect(E.placeGuestOrder(g, token('t-5'), { id: 'g-1', lines: [beer], fix: near }, menu, T0).guestRequests).toHaveLength(1)
+    // a poor fix counts for the guest, up to 150 m
+    expect(geoProblem({ ...shop, radius: 100 }, { lat: 10.7787, lng: 106.7009, acc: 120 })).toBeNull() // ~200 m, ±120
+    expect(geoProblem({ ...shop, radius: 100 }, { lat: 10.7796, lng: 106.7009, acc: 999 })).toMatch('cách quán') // ~300 m
+    // off again: the position is kept, anyone with the QR may order
+    const offed = E.setGuestGeo(g, { ...shop, radius: null }, manager)
+    expect(offed.settings.guestGeo).toEqual({ ...shop, radius: null })
+    expect(E.placeGuestOrder(offed, token('t-5'), { id: 'g-2', lines: [beer] }, menu, T0).guestRequests).toHaveLength(1)
+  })
+
+  it('distance and pasted coordinates', () => {
+    expect(Math.round(distanceM({ lat: 10.7769, lng: 106.7009 }, { lat: 10.7869, lng: 106.7009 }))).toBe(1112)
+    expect(parseLatLng('10.776900, 106.700900')).toEqual({ lat: 10.7769, lng: 106.7009 })
+    expect(parseLatLng('10,7769 106,7009')).toEqual({ lat: 10.7769, lng: 106.7009 })
+    expect(parseLatLng('quán ở đây')).toBeNull()
+    expect(parseLatLng('200, 106')).toBeNull()
+  })
+
   it('the guest page on sample data: menu, send, status with the table dishes after Nhận', async () => {
     const menuRepo = createMemoryMenuRepo()
     let actor: Actor = { name: 'Chủ quán', role: 'manager' }
@@ -140,6 +171,7 @@ describe('khách gọi món qua QR', () => {
     const guest = createMemoryGuestRepo(floor, menuRepo)
     const view = await guest.load(token)
     expect(view.callChips).toEqual(DEFAULT_CALL_CHIPS)
+    expect(view.geoRadius).toBeNull()
     expect(view).toMatchObject({ tableId: 't-7', tableName: '7' })
     await guest.place(token, { id: 'g-1', lines: [beer] })
     expect((await guest.status(token, ['g-1'])).requests).toEqual([expect.objectContaining({ id: 'g-1', status: 'pending' })])

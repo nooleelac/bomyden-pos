@@ -8,7 +8,7 @@ import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import * as E from './engine'
 import { seedFloor } from './seed'
-import type { Actor, Area, BillHistory, CallChips, FloorState, LineStatus, PaymentSettings, ReceiptSettings, SendLineInput, Table } from './types'
+import type { Actor, Area, BillHistory, CallChips, GuestGeoSettings, FloorState, LineStatus, PaymentSettings, ReceiptSettings, SendLineInput, Table } from './types'
 
 export interface FloorRepo {
   readonly source: 'sample' | 'supabase'
@@ -75,6 +75,8 @@ export interface FloorRepo {
   setGuestOrder(on: boolean): Promise<void>
   /** Câu gợi ý khi khách gọi phục vụ / thanh toán (settings.edit). */
   setGuestCallChips(p: CallChips): Promise<void>
+  /** Chống phá: the shop's position and the radius guests must be within (null radius = off) (settings.edit). */
+  setGuestGeo(p: GuestGeoSettings): Promise<void>
   /** Sample only: a guest's request from the QR page of another tab (the database takes it through guest_place_order). */
   placeGuestOrder?(token: string, inp: E.GuestOrderInput): Promise<void>
   /** Sample only: Gọi thanh toán / Gọi phục vụ from the QR page; resolves with the id to follow. */
@@ -240,6 +242,7 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
     tableQrTokens: id => run((s, c) => E.tableQrTokens(s, id, c)),
     setGuestOrder: on => run((s, c) => E.setGuestOrder(s, on, c)),
     setGuestCallChips: p => run((s, c) => E.setGuestCallChips(s, p, c)),
+    setGuestGeo: p => run((s, c) => E.setGuestGeo(s, p, c)),
     placeGuestOrder: (token, inp) => run((s, c) => E.placeGuestOrder(s, token, inp, c.menu, c.now)),
     placeGuestCall: async (token, inp) => {
       const r = E.placeGuestCall(state, token, inp, now())

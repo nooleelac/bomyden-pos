@@ -4,6 +4,7 @@
 
 import { countedTotal, openShiftOf, shiftSummary } from '../cashier/shift'
 import { settle, type Discount, type PaymentInput } from '../lib/billing'
+import { geoProblem, RADIUS_MAX, RADIUS_MIN, type GeoFix } from '../lib/geo'
 import { billTotals, vatRateOn, type TaxedLine } from '../lib/pricing'
 import { itemGroups, quoteLine, type PickerState } from '../menu/picker'
 import { APPROVAL_PERM, PERM_LABEL, roleCan, type Perm } from '../auth/permissions'
@@ -13,8 +14,8 @@ import type { Menu } from '../menu/types'
 import { TEXT_MAX, receiptTemplate } from '../cashier/template'
 import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
-  CALL_CHIP_LEN, CALL_CHIP_MAX, NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type BankAccount, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestRequest, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
+  activeGeo, CALL_CHIP_LEN, CALL_CHIP_MAX, NOTE_MAX, VOID_REASONS, RUSH_REASONS,
+  type Actor, type Area, type BankAccount, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestGeoSettings, type GuestRequest, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -1055,6 +1056,8 @@ export function saveReceipt(s: FloorState, p: ReceiptSettings, c: Ctx): FloorSta
 export interface GuestOrderInput {
   /** Picked by the guest's phone: sending it again changes nothing. */
   id: string
+  /** The phone's GPS, needed when the branch has a geofence (0026). */
+  fix?: GeoFix | null
   lines: SendLineInput[]
   note?: string
   guestCount?: number | null
@@ -1075,6 +1078,8 @@ export function placeGuestOrder(s: FloorState, token: string, inp: GuestOrderInp
   const t = guestTable(s, token)
   const prior = guestList(s).find(r => r.id === inp.id)
   if (prior) return prior.tableId === t.id ? s : fail('Mã yêu cầu đã dùng')
+  const far = geoProblem(activeGeo(s.settings.guestGeo), inp.fix)
+  if (far) fail(far)
   if (!inp.lines.length) fail('Chưa chọn món nào')
   if (inp.lines.length > 30) fail('Một lần gọi tối đa 30 dòng món')
   let n = 0
@@ -1100,6 +1105,7 @@ export function placeGuestOrder(s: FloorState, token: string, inp: GuestOrderInp
 
 export interface GuestCallInput {
   id: string
+  fix?: GeoFix | null
   kind: 'bill' | 'service'
   note?: string
 }
@@ -1112,6 +1118,8 @@ export function placeGuestCall(s: FloorState, token: string, inp: GuestCallInput
   const t = guestTable(s, token)
   const prior = guestList(s).find(r => r.id === inp.id)
   if (prior) return prior.tableId === t.id ? { state: s, id: prior.id } : fail('Mã yêu cầu đã dùng')
+  const far = geoProblem(activeGeo(s.settings.guestGeo), inp.fix)
+  if (far) fail(far)
   const note = (inp.note ?? '').trim()
   checkNote(note)
   const waiting = guestList(s).find(r => r.tableId === t.id && r.kind === inp.kind && r.status === 'pending')
@@ -1191,6 +1199,21 @@ export function checkCallChips(p: CallChips): CallChips {
 export function setGuestCallChips(s: FloorState, p: CallChips, c: Ctx): FloorState {
   need(c, 'settings.edit')
   return { ...s, settings: { ...s.settings, guestCallChips: checkCallChips(p) } }
+}
+
+/** Chống phá: a valid shop position when the radius is on; the radius 20–5000 m. */
+export function checkGuestGeo(p: GuestGeoSettings): GuestGeoSettings {
+  const has = p.lat != null && p.lng != null
+  if ((p.lat == null) !== (p.lng == null)) fail('Vị trí quán không hợp lệ')
+  if (has && (!Number.isFinite(p.lat) || !Number.isFinite(p.lng) || Math.abs(p.lat!) > 90 || Math.abs(p.lng!) > 180)) fail('Vị trí quán không hợp lệ')
+  if (p.radius != null && !has) fail('Lấy vị trí quán trước khi bật giới hạn khoảng cách')
+  if (p.radius != null && (!Number.isInteger(p.radius) || p.radius < RADIUS_MIN || p.radius > RADIUS_MAX)) fail(`Bán kính từ ${RADIUS_MIN} đến ${RADIUS_MAX} m`)
+  return { lat: p.lat, lng: p.lng, radius: p.radius }
+}
+
+export function setGuestGeo(s: FloorState, p: GuestGeoSettings, c: Ctx): FloorState {
+  need(c, 'settings.edit')
+  return { ...s, settings: { ...s.settings, guestGeo: checkGuestGeo(p) } }
 }
 
 export function setGuestOrder(s: FloorState, on: boolean, c: Ctx): FloorState {

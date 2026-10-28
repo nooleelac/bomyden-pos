@@ -151,6 +151,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         // 0023: missing column (not migrated yet) reads as on; the QR page itself says when the server is not ready
         guestOrder: sh.guest_order !== false,
         guestCallChips: chipsFrom(sh.guest_call_chips),
+        guestGeo: { lat: nn(sh.guest_geo_lat), lng: nn(sh.guest_geo_lng), radius: nn(sh.guest_geo_radius) },
         timing: Object.fromEntries(stations.map(st => [s(st.id), { warn: n(st.sla_warn_min), late: n(st.sla_late_min) }])),
       },
       areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false })),
@@ -363,6 +364,10 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     rejectGuest: (id, reason) => call('reject_guest_request', { p_id: id, p_reason: reason }, (st, c) => E.rejectGuestRequest(st, id, reason, c)),
     tableQrTokens: id => call('table_qr_tokens', { p_table: id }),
     setGuestOrder: on => call('set_guest_order', { p_on: on }, (st, c) => E.setGuestOrder(st, on, c)),
+    setGuestGeo: p => {
+      const v = E.checkGuestGeo(p)
+      return call('set_guest_geo', { p_lat: v.lat, p_lng: v.lng, p_radius: v.radius }, (st, c) => E.setGuestGeo(st, v, c))
+    },
     setGuestCallChips: p => {
       const v = E.checkCallChips(p)
       return call('set_guest_call_chips', { p: v }, (st, c) => E.setGuestCallChips(st, v, c))

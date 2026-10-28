@@ -1,6 +1,7 @@
 // Khách quét mã QR trên bàn (#/goi/<token>): the menu with sizes and options like the waiter's, a cart, Gửi gọi món,
 // Gọi phục vụ and Gọi thanh toán under the header, then each request's state (Chờ nhân viên xác nhận → Đã nhận, bếp đang làm | Không nhận) and the table's dishes.
 // No sign-in: the token in the link is the table. Nothing reaches the kitchen until a waiter taps Nhận.
+// With a geofence (0026) the page asks for GPS first and shows the menu only while the phone is close enough.
 
 import { useCallback, useEffect, useState } from 'react'
 import { errText } from '../floor/hooks'
@@ -15,6 +16,7 @@ import { Sheet } from '../floor/screens/Sheet'
 import './guest.css'
 import type { GuestRequestKind, GuestRequestStatus } from '../floor/types'
 import type { GuestRepo, GuestStatus, GuestView } from './repo'
+import { useGeoGate, type GeoGate } from './useGeoGate'
 
 const POLL_MS = 5000
 const MENU_MS = 60_000
@@ -62,6 +64,8 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
   const [now, setNow] = useState(() => new Date())
   const cart = useCart(`bmd-guest-cart-${token}`)
   const [sentIds, addSent] = useSentIds(token)
+  const geo = useGeoGate(repo, token, view?.geoRadius ?? null)
+  const gated = geo.phase !== 'off' && geo.phase !== 'ok'
 
   const loadMenu = useCallback(
     () =>
@@ -136,6 +140,10 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
         </nav>
       </header>
       {!view.isOpen && <div className="offline-bar">Quán đang ngoài giờ phục vụ</div>}
+      {gated ? (
+        <GeoGateScreen geo={geo} radius={view.geoRadius} />
+      ) : (
+      <>
       <div className="guest-calls">
         <button type="button" className="btn" disabled={called('service')} onClick={() => setCalling('service')}>
           🙋 {called('service') ? 'Đã gọi phục vụ' : 'Gọi phục vụ'}
@@ -202,6 +210,8 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
           </button>
         </main>
       )}
+      </>
+      )}
 
       {confirm && (
         <ConfirmSheet
@@ -211,7 +221,7 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
           onClose={() => setConfirm(false)}
           onSend={async inp => {
             const id = newId()
-            await repo.place(token, { id, ...inp })
+            await repo.place(token, { id, ...inp, fix: geo.fix })
             addSent(id)
             cart[1]([])
             setConfirm(false)
@@ -228,7 +238,7 @@ export function GuestApp(props: { repo: GuestRepo; token: string }) {
           tableName={view.tableName}
           onClose={() => setCalling(null)}
           onSend={async note => {
-            const id = await repo.call(token, { id: newId(), kind: calling, note })
+            const id = await repo.call(token, { id: newId(), kind: calling, note, fix: geo.fix })
             addSent(id)
             setCalling(null)
             setToast({ text: calling === 'bill' ? 'Đã báo thu ngân, nhân viên sẽ mang hoá đơn tới.' : 'Đã báo nhân viên, vui lòng đợi trong giây lát.', ok: true })
@@ -366,5 +376,67 @@ function CallSheet(props: { kind: 'bill' | 'service'; chips: string[]; tableName
       </label>
       <p className="muted small">{bill ? 'Nhân viên sẽ mang hoá đơn tới bàn.' : 'Nhân viên sẽ tới bàn ngay.'}</p>
     </Sheet>
+  )
+}
+
+/** Before the menu: turn on location, or why the phone may not order from where it is. */
+function GeoGateScreen(props: { geo: GeoGate; radius: number | null }) {
+  const { geo } = props
+  const ios = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent)
+  return (
+    <main className="guest-geo">
+      <p className="guest-geo-icon" aria-hidden>
+        {geo.phase === 'far' ? '🚶' : '📍'}
+      </p>
+      {geo.phase === 'asking' && (
+        <>
+          <h2>Đang xác định vị trí…</h2>
+          <p>Quán chỉ nhận gọi món từ khách đang ở quán{props.radius ? ` (trong ${props.radius} m)` : ''}. Khi điện thoại hỏi, bấm <b>Cho phép</b> vị trí.</p>
+        </>
+      )}
+      {geo.phase === 'denied' && (
+        <>
+          <h2>Cần bật vị trí để gọi món</h2>
+          <p>Bạn đã chặn quyền vị trí cho trang này. Bật lại rồi bấm Thử lại:</p>
+          <ol className="guest-geo-steps">
+            {ios ? (
+              <>
+                <li>Mở Cài đặt → Quyền riêng tư &amp; Bảo mật → Dịch vụ định vị: bật.</li>
+                <li>Cài đặt → Safari (hoặc trình duyệt đang dùng) → Vị trí: chọn Hỏi hoặc Cho phép.</li>
+              </>
+            ) : (
+              <>
+                <li>Bật Vị trí (GPS) trên thanh thông báo của điện thoại.</li>
+                <li>Chạm biểu tượng ổ khoá cạnh địa chỉ trang → Quyền → Vị trí: Cho phép.</li>
+              </>
+            )}
+          </ol>
+        </>
+      )}
+      {geo.phase === 'unavailable' && (
+        <>
+          <h2>Trình duyệt này không lấy được vị trí</h2>
+          <p>Mở lại mã QR bằng camera của điện thoại (Safari hoặc Chrome), hoặc gọi nhân viên để gọi món.</p>
+        </>
+      )}
+      {geo.phase === 'error' && (
+        <>
+          <h2>Chưa lấy được vị trí</h2>
+          <p>{geo.message}</p>
+        </>
+      )}
+      {geo.phase === 'far' && (
+        <>
+          <h2>Bạn đang ở xa quán</h2>
+          <p>{geo.message}</p>
+          <p className="muted small">Nếu bạn đang ngồi trong quán, ra gần cửa hoặc bật Wi-Fi để vị trí chính xác hơn rồi thử lại.</p>
+        </>
+      )}
+      {geo.phase !== 'asking' && (
+        <button type="button" className="btn btn-primary" onClick={geo.retry}>
+          Thử lại
+        </button>
+      )}
+    </main>
   )
 }

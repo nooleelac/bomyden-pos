@@ -1,13 +1,15 @@
 // #/cai-dat/ma-qr: one QR sticker per table for khách tự gọi món (0023). Opening the page gives every table without a
 // token one (tables.edit); tick tables (or whole areas) and print just those, or In tất cả, on A4 sheets of stickers; Đổi mã replaces one table's token, so a photo of
 // the old sticker stops working. settings.edit turns guest ordering on or off for the branch and edits the quick picks
-// a guest taps on Gọi phục vụ / Gọi thanh toán (0025).
+// a guest taps on Gọi phục vụ / Gọi thanh toán (0025), and the geofence: only guests within a radius of the shop (by the
+// size of the place) may order or call (0026).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth/context'
 import { roleCan } from '../auth/permissions'
 import { qrSvg } from '../cashier/print'
-import { checkCallChips } from '../floor/engine'
+import { checkCallChips, checkGuestGeo } from '../floor/engine'
+import { parseLatLng, RADIUS_MAX, RADIUS_MIN, RADIUS_PRESETS } from '../lib/geo'
 import { errText } from '../floor/hooks'
 import type { FloorRepo } from '../floor/repo'
 import { CALL_CHIP_LEN, CALL_CHIP_MAX, callChips, DEFAULT_CALL_CHIPS, type CallChips, type FloorState, type Table } from '../floor/types'
@@ -111,6 +113,8 @@ export function GuestQrSettings(props: { floor: FloorState; repo: FloorRepo; onE
           Món khách gửi hiện ở Sơ đồ bàn (🙋) và chuông thông báo. Chỉ khi nhân viên bấm <b>Nhận &amp; gửi bếp</b> món mới vào bếp, giá theo thực đơn lúc nhận.
         </p>
       </Section>
+
+      <GeoSection floor={floor} repo={repo} canEdit={canSettings} onError={props.onError} onInfo={props.onInfo} />
 
       <CallChipsSection floor={floor} repo={repo} canEdit={canSettings} onError={props.onError} onInfo={props.onInfo} />
 
@@ -287,6 +291,129 @@ function CallChipsSection(props: { floor: FloorState; repo: FloorRepo; canEdit: 
         </fieldset>
       ))}
       {!props.canEdit && <p className="muted small">Cần quyền Cài đặt đăng nhập và quán để sửa.</p>}
+    </Section>
+  )
+}
+
+const fmt = (n: number) => n.toFixed(6)
+
+/** Chống phá: the shop's position (this device's GPS, or pasted from Google Maps) and the radius by the size of the place. */
+function GeoSection(props: { floor: FloorState; repo: FloorRepo; canEdit: boolean; onError: (m: string) => void; onInfo: (m: string) => void }) {
+  const saved = props.floor.settings.guestGeo ?? { lat: null, lng: null, radius: null }
+  const [lat, setLat] = useState(saved.lat)
+  const [lng, setLng] = useState(saved.lng)
+  const [on, setOn] = useState(saved.radius != null)
+  const [radius, setRadius] = useState(saved.radius ?? 100)
+  const [paste, setPaste] = useState('')
+  const [locating, setLocating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const next = { lat, lng, radius: on ? radius : null }
+  const dirty = JSON.stringify(next) !== JSON.stringify({ lat: saved.lat, lng: saved.lng, radius: saved.radius })
+  const hasPos = lat != null && lng != null
+
+  const here = () => {
+    if (!navigator.geolocation) return props.onError('Máy này không lấy được vị trí')
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      p => {
+        setLat(Number(fmt(p.coords.latitude)))
+        setLng(Number(fmt(p.coords.longitude)))
+        setLocating(false)
+        props.onInfo(`Đã lấy vị trí máy này (sai số khoảng ${Math.round(p.coords.accuracy)} m)`)
+      },
+      e => {
+        setLocating(false)
+        props.onError(e.code === e.PERMISSION_DENIED ? 'Trình duyệt đang chặn vị trí: cho phép vị trí cho trang này rồi thử lại' : 'Chưa lấy được vị trí, thử lại hoặc dán toạ độ')
+      },
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
+    )
+  }
+  const applyPaste = () => {
+    const v = parseLatLng(paste)
+    if (!v) return props.onError('Không đọc được toạ độ: dán dạng 10.776900, 106.700900')
+    setLat(v.lat)
+    setLng(v.lng)
+    setPaste('')
+  }
+  const save = () => {
+    let v
+    try {
+      v = checkGuestGeo(next)
+    } catch (e) {
+      return props.onError(errText(e))
+    }
+    setSaving(true)
+    props.repo
+      .setGuestGeo(v)
+      .then(() => props.onInfo(v.radius != null ? `Đã bật: chỉ khách trong ${v.radius} m gọi được` : 'Đã lưu: không giới hạn khoảng cách'), e => props.onError(errText(e)))
+      .finally(() => setSaving(false))
+  }
+  const off = !props.canEdit
+
+  return (
+    <Section
+      title="Chống phá: chỉ khách ở quán"
+      aside={
+        props.canEdit && (
+          <button type="button" className="btn btn-primary btn-small" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Đang lưu…' : 'Lưu'}
+          </button>
+        )
+      }
+    >
+      <Switch
+        checked={on}
+        disabled={off}
+        label={on ? `Đang bật: khách phải bật GPS và ở trong ${radius} m mới gọi được` : 'Đang tắt: ai có mã QR cũng gọi được'}
+        onChange={setOn}
+      />
+      <p className="muted small">
+        Khách quét mã là trang hỏi vị trí ngay; ở xa quán thì không xem được thực đơn và không gửi được món, gọi phục vụ hay thanh toán. Máy chủ kiểm tra lại mỗi lần gửi.
+      </p>
+
+      <fieldset className="pick-group">
+        <legend>Vị trí quán</legend>
+        {hasPos ? (
+          <p>
+            <b>
+              {fmt(lat!)}, {fmt(lng!)}
+            </b>{' '}
+            <a className="small" href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noreferrer">
+              Xem trên bản đồ ›
+            </a>
+          </p>
+        ) : (
+          <p className="warn">Chưa có vị trí quán: đứng trong quán và bấm Lấy vị trí máy này.</p>
+        )}
+        {props.canEdit && (
+          <div className="chip-edit-add">
+            <button type="button" className="btn btn-small" disabled={locating} onClick={here}>
+              {locating ? 'Đang lấy vị trí…' : '📍 Lấy vị trí máy này'}
+            </button>
+            <input placeholder="Hoặc dán toạ độ từ Google Maps" value={paste} onChange={e => setPaste(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), applyPaste())} />
+            <button type="button" className="btn btn-small" disabled={!paste.trim()} onClick={applyPaste}>
+              Dùng
+            </button>
+          </div>
+        )}
+      </fieldset>
+
+      <fieldset className="pick-group">
+        <legend>Bán kính theo quy mô quán</legend>
+        <div className="chip-row">
+          {RADIUS_PRESETS.map(x => (
+            <button key={x.radius} type="button" className={'chip' + (radius === x.radius ? ' is-on' : '')} aria-pressed={radius === x.radius} disabled={off} onClick={() => setRadius(x.radius)}>
+              {x.label} · {x.hint}
+            </button>
+          ))}
+        </div>
+        <label className="field">
+          <span className="field-label">Hoặc nhập số mét ({RADIUS_MIN}–{RADIUS_MAX})</span>
+          <input type="number" inputMode="numeric" min={RADIUS_MIN} max={RADIUS_MAX} value={radius || ''} disabled={off} onChange={e => setRadius(Math.round(Number(e.target.value) || 0))} />
+        </label>
+        <p className="muted small">GPS trong nhà thường lệch 30–80 m, nên app cộng thêm sai số của điện thoại (tối đa 150 m). Quán nhỏ trong phố nên chọn 50–100 m.</p>
+      </fieldset>
+      {off && <p className="muted small">Cần quyền Cài đặt đăng nhập và quán để sửa.</p>}
     </Section>
   )
 }

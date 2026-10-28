@@ -7,7 +7,8 @@ import type { GuestCallInput, GuestOrderInput } from '../floor/engine'
 import { guestTable } from '../floor/engine'
 import { openOrdersAt } from '../floor/logic'
 import type { FloorRepo } from '../floor/repo'
-import { callChips, type CallChips, type GuestRequestKind, type GuestRequestStatus, type LineStatus } from '../floor/types'
+import { geoProblem, type GeoFix } from '../lib/geo'
+import { activeGeo, callChips, type CallChips, type GuestRequestKind, type GuestRequestStatus, type LineStatus } from '../floor/types'
 import { chipsFrom } from '../floor/supabaseRepo'
 import type { MenuRepo } from '../menu/repo'
 import { MENU_KEYS, menuFromRows } from '../menu/supabaseRepo'
@@ -21,6 +22,8 @@ export interface GuestView {
   isOpen: boolean
   /** Quick picks on Gọi phục vụ / Gọi thanh toán. */
   callChips: CallChips
+  /** Chống phá (0026): the menu shows only once the phone's GPS is close enough; radius in metres, null = off. */
+  geoRadius: number | null
   menu: Menu
 }
 
@@ -37,10 +40,13 @@ export interface GuestRepo {
   /** Gọi thanh toán / Gọi phục vụ; resolves with the id to follow (the call already waiting, if any). */
   call(token: string, inp: GuestCallInput): Promise<string>
   status(token: string, ids: string[]): Promise<GuestStatus>
+  /** null = close enough to order; else what the guest is told (the server checks each request again). */
+  checkGeo(token: string, fix: GeoFix): Promise<string | null>
 }
 
 type Row = Record<string, unknown>
 const s = (v: unknown) => (v == null ? '' : String(v))
+const fixArgs = (f: GeoFix | null | undefined) => ({ p_lat: f?.lat ?? null, p_lng: f?.lng ?? null, p_acc: f?.acc ?? null })
 const kindOf = (v: unknown): GuestRequestKind => (v === 'bill' || v === 'service' ? v : 'order')
 
 async function rpc<T>(db: SupabaseClient, fn: string, args: Record<string, unknown>): Promise<T> {
@@ -55,14 +61,18 @@ export function createSupabaseGuestRepo(db: SupabaseClient): GuestRepo {
       const r = await rpc<Row>(db, 'guest_menu', { p_token: token })
       const t = (r.table as Row | null) ?? {}
       const m = (r.menu as Record<string, Row[]> | null) ?? {}
-      return { tableId: s(t.id), tableName: s(t.name), shopName: s(r.shop_name), isOpen: r.is_open !== false, callChips: callChips(chipsFrom(r.call_chips)), menu: menuFromRows(MENU_KEYS.map(k => m[k] ?? [])) }
+      return { tableId: s(t.id), tableName: s(t.name), shopName: s(r.shop_name), isOpen: r.is_open !== false, callChips: callChips(chipsFrom(r.call_chips)), geoRadius: r.geo_required === true ? Number(r.geo_radius) : null, menu: menuFromRows(MENU_KEYS.map(k => m[k] ?? [])) }
     },
     async place(token, inp) {
-      await rpc(db, 'guest_place_order', { p_token: token, p_id: inp.id, p_lines: inp.lines, p_note: inp.note ?? '', p_guests: inp.guestCount ?? null })
+      await rpc(db, 'guest_place_order', { p_token: token, p_id: inp.id, p_lines: inp.lines, p_note: inp.note ?? '', p_guests: inp.guestCount ?? null, ...fixArgs(inp.fix) })
     },
     async call(token, inp) {
-      const r = await rpc<Row>(db, 'guest_call', { p_token: token, p_id: inp.id, p_kind: inp.kind, p_note: inp.note ?? '' })
+      const r = await rpc<Row>(db, 'guest_call', { p_token: token, p_id: inp.id, p_kind: inp.kind, p_note: inp.note ?? '', ...fixArgs(inp.fix) })
       return s(r.id) || inp.id
+    },
+    async checkGeo(token, fix) {
+      const r = await rpc<Row>(db, 'guest_geo', { p_token: token, ...fixArgs(fix) })
+      return r.ok === true ? null : s(r.message) || 'Chưa xác định được vị trí của bạn'
     },
     async status(token, ids) {
       const r = await rpc<Row>(db, 'guest_status', { p_token: token, p_ids: ids })
@@ -79,7 +89,7 @@ export function createMemoryGuestRepo(floor: FloorRepo, menu: MenuRepo): GuestRe
     async load(token) {
       const st = await floor.load()
       const t = guestTable(st, token)
-      return { tableId: t.id, tableName: t.name, shopName: st.shop.name, isOpen: true, callChips: callChips(st.settings.guestCallChips), menu: await menu.load() }
+      return { tableId: t.id, tableName: t.name, shopName: st.shop.name, isOpen: true, callChips: callChips(st.settings.guestCallChips), geoRadius: activeGeo(st.settings.guestGeo)?.radius ?? null, menu: await menu.load() }
     },
     async place(token, inp) {
       if (!floor.placeGuestOrder) throw new Error('Chưa nối được với quán')
@@ -88,6 +98,11 @@ export function createMemoryGuestRepo(floor: FloorRepo, menu: MenuRepo): GuestRe
     async call(token, inp) {
       if (!floor.placeGuestCall) throw new Error('Chưa nối được với quán')
       return floor.placeGuestCall(token, inp)
+    },
+    async checkGeo(token, fix) {
+      const st = await floor.load()
+      guestTable(st, token)
+      return geoProblem(activeGeo(st.settings.guestGeo), fix)
     },
     async status(token, ids) {
       const st = await floor.load()
