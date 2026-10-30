@@ -40,3 +40,18 @@
 .guest-geo-steps { text-align: left; padding-left: 20px; margin: 8px 0 16px; }
 .guest-geo-steps li { margin: 4px 0; }
 .guest-geo .btn { min-width: 160px; justify-content: center; }
+
+/* Đặt hàng online (dathang.bomyden.vn) */
+.online-branch { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.online-branch .field { flex: 1; }
+.online-branch p { margin: 0; flex: 1; min-width: 0; }
+.online-branch .btn { flex-shrink: 0; }
+.online-ship { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.online-ship p { margin: 0; }
+.online-status { margin: 0 0 8px; }
+.online-status.st-pending b, .online-status.st-quoted b, .online-status.st-agreed b { color: var(--warn); }
+.online-status.st-accepted b { color: var(--ok); }
+.online-status.st-rejected b { color: var(--danger); }
+.online-qr { text-align: center; margin: 12px 0; }
+.online-qr > div { width: 220px; max-width: 100%; margin: 0 auto; }
+.online-qr svg { display: block; width: 100%; height: auto; }

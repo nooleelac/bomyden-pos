@@ -4,6 +4,7 @@
 // createSupabaseFloorRepo (supabaseRepo.ts) runs the same screens on the database with Realtime.
 
 import { PERM_LABEL, roleCan } from '../auth/permissions'
+import type { Carrier, ShipRules } from '../lib/ship'
 import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import * as E from './engine'
@@ -81,6 +82,18 @@ export interface FloorRepo {
   placeGuestOrder?(token: string, inp: E.GuestOrderInput): Promise<void>
   /** Sample only: Gọi thanh toán / Gọi phục vụ from the QR page; resolves with the id to follow. */
   placeGuestCall?(token: string, inp: E.GuestCallInput): Promise<string>
+  /** Đơn online, Báo phí: the real fee from the delivery app and the food total the guest is asked to pay. */
+  quoteOnline(id: string, p: { fee: number; carrier: Carrier; foodTotal: number }): Promise<void>
+  /** Nhận: the lines go to the kitchen on a new takeaway order; resolves with its id. */
+  acceptOnline(id: string): Promise<string>
+  /** Từ chối, with the reason the guest sees. */
+  rejectOnline(id: string, reason: string): Promise<void>
+  /** Cài đặt → Đặt hàng online (settings.edit). */
+  setOnlineSettings(p: { on: boolean; ship: ShipRules }): Promise<void>
+  /** Sample only: the web page of another tab (the database takes these through the online_* RPCs of 0027). */
+  placeOnline?(inp: E.OnlinePlaceInput): Promise<void>
+  agreeOnline?(id: string, fee: number): Promise<void>
+  cancelOnline?(id: string): Promise<void>
   /** Sample only: back to the sample evening. */
   reset?(): Promise<void>
   /** Supabase only: the signed-in staff member (role decides what the screens offer). */
@@ -243,6 +256,13 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
     setGuestOrder: on => run((s, c) => E.setGuestOrder(s, on, c)),
     setGuestCallChips: p => run((s, c) => E.setGuestCallChips(s, p, c)),
     setGuestGeo: p => run((s, c) => E.setGuestGeo(s, p, c)),
+    quoteOnline: (id, p) => run((s, c) => E.quoteOnlineOrder(s, id, p, c)),
+    acceptOnline: id => runId((s, c) => E.acceptOnlineOrder(s, id, c)),
+    rejectOnline: (id, reason) => run((s, c) => E.rejectOnlineOrder(s, id, reason, c)),
+    setOnlineSettings: p => run((s, c) => E.setOnlineSettings(s, p, c)),
+    placeOnline: inp => run((s, c) => E.placeOnlineOrder(s, inp, c.menu, c.now)),
+    agreeOnline: (id, fee) => run(s => E.agreeOnlineOrder(s, id, fee)),
+    cancelOnline: id => run((s, c) => E.cancelOnlineOrder(s, id, c.now)),
     placeGuestOrder: (token, inp) => run((s, c) => E.placeGuestOrder(s, token, inp, c.menu, c.now)),
     placeGuestCall: async (token, inp) => {
       const r = E.placeGuestCall(state, token, inp, now())

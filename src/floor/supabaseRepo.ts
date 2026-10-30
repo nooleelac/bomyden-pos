@@ -11,9 +11,10 @@ import type { VatGroup } from '../lib/pricing'
 import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import { liveTables } from '../lib/live'
+import { DEFAULT_SHIP, type ShipRules } from '../lib/ship'
 import * as E from './engine'
 import type { FloorRepo } from './repo'
-import type { Actor, BankAccount, Bill, CallChips, FloorState, GuestRequest, GuestRequestStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
+import type { Actor, BankAccount, Bill, CallChips, FloorState, GuestRequest, GuestRequestStatus, OnlineOrder, OnlineStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
 
 type Row = Record<string, unknown>
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>
@@ -38,6 +39,12 @@ const sn = (v: unknown) => (v == null ? null : String(v))
 const n = (v: unknown) => Number(v ?? 0)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const idOf = (r: unknown) => s((r as Row | null)?.id)
+
+/** branch_settings.online_ship (0027). */
+export function shipFrom(v: unknown): ShipRules {
+  const r = (v as Row | null) ?? {}
+  return r.base_fee == null ? DEFAULT_SHIP : { baseKm: Number(r.base_km), baseFee: Number(r.base_fee), perKm: Number(r.per_km), maxKm: Number(r.max_km) }
+}
 
 /** branch_settings.guest_call_chips (0025): only the lists that are there (a missing one = the default). */
 export function chipsFrom(v: unknown): Partial<CallChips> {
@@ -152,6 +159,9 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         guestOrder: sh.guest_order !== false,
         guestCallChips: chipsFrom(sh.guest_call_chips),
         guestGeo: { lat: nn(sh.guest_geo_lat), lng: nn(sh.guest_geo_lng), radius: nn(sh.guest_geo_radius) },
+        // 0027: a missing column (not migrated yet) reads as off
+        onlineOrder: sh.online_order === true,
+        onlineShip: shipFrom(sh.online_ship),
         timing: Object.fromEntries(stations.map(st => [s(st.id), { warn: n(st.sla_warn_min), late: n(st.sla_late_min) }])),
       },
       areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false })),
@@ -185,6 +195,12 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         id: s(r.id), kind: r.kind === 'bill' || r.kind === 'service' ? r.kind : 'order', tableId: s(r.table_id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), guestCount: nn(r.guest_count),
         status: r.status as GuestRequestStatus, reason: s(r.reason), createdAt: s(r.created_at), decidedAt: sn(r.decided_at),
         decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
+      })),
+      onlineOrders: list('online_orders').map((r): OnlineOrder => ({
+        id: s(r.id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), customerName: s(r.customer_name), phone: s(r.phone), address: s(r.address),
+        lat: nn(r.lat), lng: nn(r.lng), distanceM: nn(r.distance_m), shipEstimate: nn(r.ship_estimate), payMethod: r.pay_method === 'cod' ? 'cod' : 'transfer',
+        foodTotal: nn(r.food_total), shipFee: nn(r.ship_fee), carrier: s(r.carrier) as OnlineOrder['carrier'], status: r.status as OnlineStatus, reason: s(r.reason),
+        createdAt: s(r.created_at), decidedAt: sn(r.decided_at), decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
       })),
     }
     if (no === loadNo) cache = out
@@ -233,7 +249,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       return r[0] ? { name: s(r[0].name), role: r[0].role as Role } : null
     },
     subscribe(onChange) {
-      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings', 'guest_requests']
+      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings', 'guest_requests', 'online_orders']
       const off = liveTables(db, 'floor-changes', tables, () => onChange(), 15_000)
       listeners.add(onChange)
       return () => {
@@ -363,6 +379,11 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     acceptGuest: id => act(() => rpc<string | null>(db, 'accept_guest_request', { p_id: id })).then(s),
     rejectGuest: (id, reason) => call('reject_guest_request', { p_id: id, p_reason: reason }, (st, c) => E.rejectGuestRequest(st, id, reason, c)),
     tableQrTokens: id => call('table_qr_tokens', { p_table: id }),
+    quoteOnline: (id, p) => call('quote_online_order', { p_id: id, p_fee: p.fee, p_carrier: p.carrier, p_food_total: p.foodTotal }, (st, c) => E.quoteOnlineOrder(st, id, p, c)),
+    acceptOnline: id => act(() => rpc<string | null>(db, 'accept_online_order', { p_id: id })).then(s),
+    rejectOnline: (id, reason) => call('reject_online_order', { p_id: id, p_reason: reason }, (st, c) => E.rejectOnlineOrder(st, id, reason, c)),
+    setOnlineSettings: p =>
+      call('set_online_settings', { p_on: p.on, p_ship: { base_km: p.ship.baseKm, base_fee: p.ship.baseFee, per_km: p.ship.perKm, max_km: p.ship.maxKm } }, (st, c) => E.setOnlineSettings(st, p, c)),
     setGuestOrder: on => call('set_guest_order', { p_on: on }, (st, c) => E.setGuestOrder(st, on, c)),
     setGuestGeo: p => {
       const v = E.checkGuestGeo(p)

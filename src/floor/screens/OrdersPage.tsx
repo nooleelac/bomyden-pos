@@ -4,12 +4,13 @@
 import { useState } from 'react'
 import { vnd } from '../../menu/picker'
 import type { Menu } from '../../menu/types'
-import { isOpen, minutesText, orderAmount, orderLabel, orderProgress, pendingGuests, PROGRESS_LABEL } from '../logic'
+import { isOpen, minutesText, orderAmount, orderLabel, orderProgress, pendingGuests, pendingOnline, PROGRESS_LABEL } from '../logic'
 import type { FloorRepo } from '../repo'
 import type { FloorState, Order, Role } from '../types'
 import { GuestRequests } from './GuestRequests'
+import { OnlineOrders } from './OnlineOrders'
 
-type Filter = 'all' | 'dine_in' | 'takeaway' | 'bill' | 'qr'
+type Filter = 'all' | 'dine_in' | 'takeaway' | 'bill' | 'qr' | 'web'
 
 const stateOf = (o: Order) => (o.payingAt ? 'paying' : o.billRequestedAt ? 'bill' : 'open')
 const STATE_LABEL = { bill: 'Chờ thanh toán', paying: 'Đang thanh toán' } as const
@@ -27,7 +28,8 @@ export function OrdersPage(props: {
   const [filter, setFilter] = useState<Filter>('all')
   const open = floor.orders.filter(isOpen).sort((a, b) => a.openedAt.localeCompare(b.openedAt))
   const qrCount = pendingGuests(floor).length
-  const groups: { id: Exclude<Filter, 'qr'>; label: string; icon: string; list: Order[] }[] = [
+  const webCount = pendingOnline(floor).length
+  const groups: { id: Exclude<Filter, 'qr' | 'web'>; label: string; icon: string; list: Order[] }[] = [
     { id: 'all', label: 'Tất cả', icon: '▦', list: open },
     { id: 'dine_in', label: 'Tại bàn', icon: '🍽️', list: open.filter(o => o.kind !== 'takeaway') },
     { id: 'takeaway', label: 'Mang về', icon: '🥡', list: open.filter(o => o.kind === 'takeaway') },
@@ -63,10 +65,18 @@ export function OrdersPage(props: {
             <span className="rail-nowrap">QR order</span>
             {qrCount > 0 && <span className="rail-count">{qrCount}</span>}
           </button>
+          <button type="button" className={'rail-item' + (filter === 'web' ? ' is-on' : '')} onClick={() => setFilter('web')}>
+            <span className="rail-icon" aria-hidden>
+              🛵
+            </span>
+            <span className="rail-nowrap">Đơn online</span>
+            {webCount > 0 && <span className="rail-count">{webCount}</span>}
+          </button>
         </nav>
         <div className="floor-main">
           {filter === 'qr' && <GuestRequests floor={floor} menu={props.menu} repo={props.repo} now={now} onError={props.onError} onInfo={props.onInfo} />}
-          {filter !== 'qr' && shown.length === 0 && <p className="empty">Không có đơn nào</p>}
+          {filter === 'web' && <OnlineOrders floor={floor} menu={props.menu} repo={props.repo} now={now} onError={props.onError} onInfo={props.onInfo} />}
+          {filter !== 'qr' && filter !== 'web' && shown.length === 0 && <p className="empty">Không có đơn nào</p>}
           <ul className="order-cards">
             {shown.map(o => {
               const st = stateOf(o)

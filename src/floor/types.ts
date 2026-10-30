@@ -4,6 +4,7 @@
 import type { ReceiptTemplate } from '../cashier/template'
 import type { PayMethod } from '../lib/billing'
 import type { GuestGeo } from '../lib/geo'
+import type { Carrier, ShipRules } from '../lib/ship'
 import type { RoundingMode, VatGroup } from '../lib/pricing'
 
 export interface Area {
@@ -215,6 +216,10 @@ export interface FloorSettings {
   guestCallChips?: Partial<CallChips>
   /** Chống phá (0026): the shop's position and the radius guests must be within; on only when all three are set. */
   guestGeo?: GuestGeoSettings
+  /** Nhận đơn online (0027 branch_settings.online_order); the database's default is off, missing = on (sample). */
+  onlineOrder?: boolean
+  /** Bảng giá ship tạm tính; missing = DEFAULT_SHIP. */
+  onlineShip?: ShipRules
 }
 
 export interface FloorState {
@@ -236,6 +241,41 @@ export interface FloorState {
   clockOffset?: number
   /** Khách gọi món qua QR: the waiting ones and those decided in the last hours (0023); missing = none. */
   guestRequests?: GuestRequest[]
+  /** Đơn giao hàng từ web: the open ones and those finished in the last hours (0027); missing = none. */
+  onlineOrders?: OnlineOrder[]
+}
+
+export type OnlineStatus = 'pending' | 'quoted' | 'agreed' | 'accepted' | 'rejected' | 'cancelled'
+
+export type OnlinePay = 'transfer' | 'cod'
+
+/** A delivery order from the web page: staff enter the real ship fee, the guest agrees, staff accept it into the kitchen. */
+export interface OnlineOrder {
+  id: string
+  /** send_order_lines form; priced when accepted. */
+  lines: SendLineInput[]
+  note: string
+  customerName: string
+  phone: string
+  address: string
+  lat: number | null
+  lng: number | null
+  /** Straight line from the branch, metres; null without the guest's position. */
+  distanceM: number | null
+  shipEstimate: number | null
+  payMethod: OnlinePay
+  /** Set by staff with the fee: what the guest is asked to pay. */
+  foodTotal: number | null
+  shipFee: number | null
+  carrier: Carrier | ''
+  status: OnlineStatus
+  /** Why it was rejected, shown to the guest. */
+  reason: string
+  createdAt: string
+  decidedAt: string | null
+  decidedBy: string
+  /** The takeaway order it went onto. */
+  orderId: string | null
 }
 
 export type GuestRequestStatus = 'pending' | 'accepted' | 'rejected'

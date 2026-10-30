@@ -69,7 +69,7 @@ export function FloorApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) {
         </div>
       )}
       {page === 'orders' && <OrdersPage floor={floor} menu={menu} repo={floorRepo} now={now} role={role} onError={onError} onInfo={onInfo} />}
-      {page === 'map' && <FloorMap floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} online={online} qr={route[1] === 'khach'} onError={onError} onInfo={onInfo} />}
+      {page === 'map' && <FloorMap floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} online={online} qr={route[1] === 'khach'} web={route[1] === 'online'} onError={onError} onInfo={onInfo} />}
       {page === 'order' && <OrderView key={route[2]} floor={floor} menu={menu} repo={floorRepo} now={now} role={role} me={me} orderId={route[2]} onError={onError} onInfo={onInfo} />}
       {page === 'setup' && (
         <main>

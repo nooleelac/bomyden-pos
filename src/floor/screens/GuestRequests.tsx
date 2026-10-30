@@ -16,7 +16,7 @@ import type { FloorState, GuestRequest } from '../types'
 import { Sheet } from './Sheet'
 import '../../guest/guest.css'
 
-const REJECT_REASONS = ['Món đã hết', 'Bàn chưa có khách', 'Nhân viên sẽ tới tư vấn', 'Gửi trùng'] as const
+const REJECT_REASONS = ['Món đã hết', 'Bàn chưa có khách', 'Nhân viên sẽ tới tư vấn', 'Gửi trùng']
 
 export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: FloorRepo; now: Date; onError: (m: string) => void; onInfo: (m: string) => void }) {
   const { floor, menu, repo, now } = props
@@ -168,7 +168,7 @@ export function GuestRequests(props: { floor: FloorState; menu: Menu; repo: Floo
   )
 }
 
-function RejectSheet(props: { title: string; onClose: () => void; onReject: (reason: string) => void }) {
+export function RejectSheet(props: { title: string; reasons?: string[]; onClose: () => void; onReject: (reason: string) => void }) {
   const [reason, setReason] = useState('')
   return (
     <Sheet
@@ -182,7 +182,7 @@ function RejectSheet(props: { title: string; onClose: () => void; onReject: (rea
       }
     >
       <div className="chip-row">
-        {REJECT_REASONS.map(x => (
+        {(props.reasons ?? REJECT_REASONS).map(x => (
           <button key={x} type="button" className={'chip' + (reason === x ? ' is-on' : '')} aria-pressed={reason === x} onClick={() => setReason(x)}>
             {x}
           </button>

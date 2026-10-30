@@ -83,5 +83,12 @@ export function floorEvents(s: FloorState, now: Date, hours = 12, max = 60): Flo
     ev.push({ id: `guest-${r.id}`, kind: 'guest', at: r.createdAt, by: '', text, href: '#/ban/khach' })
   }
 
+  // đơn online: until staff have answered
+  for (const r of s.onlineOrders ?? []) {
+    if ((r.status !== 'pending' && r.status !== 'agreed') || !recent(r.createdAt)) continue
+    const text = r.status === 'pending' ? `đơn online của ${r.customerName}: cần báo phí ship` : `${r.customerName} đồng ý phí ship: nhận đơn`
+    ev.push({ id: `online-${r.id}-${r.status}`, kind: 'guest', at: r.createdAt, by: '', text, href: '#/ban/online' })
+  }
+
   return ev.sort((a, b) => b.at.localeCompare(a.at)).slice(0, max)
 }

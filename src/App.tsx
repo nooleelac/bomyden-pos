@@ -7,6 +7,7 @@ import { useAuth } from './auth/context'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './auth/memoryRepo'
 import type { AuthRepo } from './auth/repo'
 import type { GuestRepo } from './guest/repo'
+import type { OnlineRepo } from './online/repo'
 import { staffFetch } from './auth/token'
 import { FloorApp } from './floor/FloorApp'
 import { peekSource, ReposContext, session, useRoute } from './floor/hooks'
@@ -39,6 +40,7 @@ const CashierApp = lazy(() => import('./cashier/CashierApp').then(m => ({ defaul
 const MenuApp = lazy(() => import('./menu/MenuApp').then(m => ({ default: m.MenuApp })))
 const SettingsApp = lazy(() => import('./settings/SettingsApp').then(m => ({ default: m.SettingsApp })))
 const GuestApp = lazy(() => import('./guest/GuestApp').then(m => ({ default: m.GuestApp })))
+const OnlineApp = lazy(() => import('./online/OnlineApp').then(m => ({ default: m.OnlineApp })))
 
 interface Repos {
   menu: MenuRepo
@@ -104,6 +106,32 @@ function Guest(props: { token: string }) {
   )
 }
 
+// Đặt hàng online (dathang.bomyden.vn, or #/dat-hang on any address): no device, no PIN, the anon RPCs of 0027 only.
+async function connectOnline(): Promise<OnlineRepo> {
+  const { createMemoryOnlineRepo, createSupabaseOnlineRepo } = await import('./online/repo')
+  if (floorFromDb) {
+    const { createClient } = await import('@supabase/supabase-js')
+    return createSupabaseOnlineRepo(createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } }))
+  }
+  const menu = createMemoryMenuRepo()
+  return createMemoryOnlineRepo(sampleFloorRepo(menu, null), menu)
+}
+
+function Online() {
+  const [repo, setRepo] = useState<OnlineRepo | null>(null)
+  useEffect(() => {
+    connectOnline().then(setRepo)
+  }, [])
+  if (!repo) return <p style={{ padding: 16 }}>Đang mở thực đơn…</p>
+  return (
+    <Suspense fallback={<p style={{ padding: 16 }}>Đang mở thực đơn…</p>}>
+      <ErrorBoundary>
+        <OnlineApp repo={repo} />
+      </ErrorBoundary>
+    </Suspense>
+  )
+}
+
 function Screens(props: { repos: Repos }) {
   const { repos } = props
   const route = useRoute()
@@ -120,6 +148,7 @@ function Screens(props: { repos: Repos }) {
 
 function App() {
   const route = useRoute()
+  if (location.hostname.startsWith('dathang.') || route[0] === 'dat-hang') return <Online />
   return route[0] === 'goi' ? <Guest token={route[1] ?? ''} /> : <StaffSide />
 }
 

@@ -4,7 +4,8 @@
 
 import { countedTotal, openShiftOf, shiftSummary } from '../cashier/shift'
 import { settle, type Discount, type PaymentInput } from '../lib/billing'
-import { geoProblem, RADIUS_MAX, RADIUS_MIN, type GeoFix } from '../lib/geo'
+import { distanceM, geoProblem, RADIUS_MAX, RADIUS_MIN, type GeoFix } from '../lib/geo'
+import { DEFAULT_SHIP, onlineCode, shipEstimate, shipRulesProblem, shipTooFar, type Carrier, type ShipRules } from '../lib/ship'
 import { billTotals, vatRateOn, type TaxedLine } from '../lib/pricing'
 import { itemGroups, quoteLine, type PickerState } from '../menu/picker'
 import { APPROVAL_PERM, PERM_LABEL, roleCan, type Perm } from '../auth/permissions'
@@ -15,7 +16,7 @@ import { TEXT_MAX, receiptTemplate } from '../cashier/template'
 import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
   activeGeo, CALL_CHIP_LEN, CALL_CHIP_MAX, NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type BankAccount, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestGeoSettings, type GuestRequest, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
+  type Actor, type Area, type BankAccount, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestGeoSettings, type GuestRequest, type OnlineOrder, type OnlinePay, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -1172,6 +1173,118 @@ export function rejectGuestRequest(s: FloorState, id: string, reason: string, c:
   if (r.status !== 'pending') fail('Yêu cầu này đã được xử lý')
   const why = reason.trim().slice(0, 80)
   return { ...s, guestRequests: guestList(s).map(x => (x.id === id ? { ...x, status: 'rejected', reason: why, decidedAt: iso(c), decidedBy: c.actor.name } : x)) }
+}
+
+// ---------------------------------------------------------------- đơn giao hàng từ web (0027)
+
+export interface OnlinePlaceInput {
+  /** Picked by the guest's phone: sending it again changes nothing. */
+  id: string
+  lines: SendLineInput[]
+  customerName: string
+  phone: string
+  address: string
+  payMethod: OnlinePay
+  note?: string
+  fix?: GeoFix | null
+}
+
+const onlineList = (s: FloorState) => s.onlineOrders ?? []
+const OPEN_ONLINE = ['pending', 'quoted', 'agreed']
+
+function onlineOrder(s: FloorState, id: string): OnlineOrder {
+  return onlineList(s).find(x => x.id === id) ?? fail('Không tìm thấy đơn online')
+}
+const patchOnline = (s: FloorState, id: string, p: Partial<OnlineOrder>): FloorState => ({ ...s, onlineOrders: onlineList(s).map(x => (x.id === id ? { ...x, ...p } : x)) })
+
+/** The guest's order (online_place_order): checked for shape and limits, priced on Nhận. */
+export function placeOnlineOrder(s: FloorState, inp: OnlinePlaceInput, menu: Menu, now: Date): FloorState {
+  if (onlineList(s).some(r => r.id === inp.id)) return s
+  if (s.settings.onlineOrder === false) fail('Chi nhánh này chưa nhận đơn online')
+  const customerName = inp.customerName.trim()
+  const phone = inp.phone.replace(/\D/g, '')
+  const address = inp.address.trim()
+  const note = (inp.note ?? '').trim()
+  if (customerName.length < 1 || customerName.length > 40) fail('Nhập họ tên người nhận (tối đa 40 ký tự)')
+  if (!/^0\d{9}$/.test(phone)) fail('Số điện thoại phải có 10 số, bắt đầu bằng 0')
+  if (address.length < 8 || address.length > 200) fail('Nhập địa chỉ giao hàng đầy đủ')
+  if (note.length > 120) fail('Ghi chú tối đa 120 ký tự')
+  if (!inp.lines.length) fail('Chưa chọn món nào')
+  if (inp.lines.length > 30) fail('Một lần đặt tối đa 30 dòng món')
+  let n = 0
+  for (const l of inp.lines) {
+    if (!menu.items.some(i => i.id === l.menu_item_id && i.status === 'active')) fail('Có món không còn trên thực đơn, mời bạn tải lại trang')
+    if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 20) fail('Mỗi món từ 1 đến 20 phần')
+    if ((l.note ?? '').length > NOTE_MAX) fail(`Ghi chú món tối đa ${NOTE_MAX} ký tự`)
+    n += l.qty
+  }
+  if (n > 60) fail('Một lần đặt tối đa 60 phần')
+  const rules = s.settings.onlineShip ?? DEFAULT_SHIP
+  const shop = s.settings.guestGeo
+  const metres = inp.fix && shop?.lat != null && shop.lng != null ? distanceM({ lat: shop.lat, lng: shop.lng }, inp.fix) : null
+  if (metres != null && shipTooFar(rules, metres)) fail(`Địa chỉ này xa quá phạm vi giao ${rules.maxKm} km của chi nhánh`)
+  const mine = onlineList(s).filter(r => r.phone === phone)
+  if (mine.filter(r => OPEN_ONLINE.includes(r.status)).length >= 3) fail('Số điện thoại này đang có nhiều đơn chờ, mời bạn đợi quán xác nhận')
+  if (mine.filter(r => now.getTime() - new Date(r.createdAt).getTime() < 3600_000).length >= 6) fail('Số điện thoại này đã đặt nhiều đơn, mời bạn gọi quán')
+  const r: OnlineOrder = {
+    id: inp.id, lines: inp.lines, note, customerName, phone, address, lat: inp.fix?.lat ?? null, lng: inp.fix?.lng ?? null,
+    distanceM: metres == null ? null : Math.round(metres), shipEstimate: metres == null ? null : shipEstimate(rules, metres), payMethod: inp.payMethod,
+    foodTotal: null, shipFee: null, carrier: '', status: 'pending', reason: '', createdAt: now.toISOString(), decidedAt: null, decidedBy: '', orderId: null,
+  }
+  return { ...s, onlineOrders: [...onlineList(s), r] }
+}
+
+/** Báo phí: staff give the real fee and the food total; again until the guest has agreed. */
+export function quoteOnlineOrder(s: FloorState, id: string, p: { fee: number; carrier: Carrier; foodTotal: number }, c: Ctx): FloorState {
+  floorStaff(c)
+  const r = onlineOrder(s, id)
+  if (r.status !== 'pending' && r.status !== 'quoted') fail('Đơn này đã được xử lý')
+  if (!Number.isInteger(p.fee) || p.fee < 0 || p.fee > 1_000_000) fail('Phí ship từ 0 đến 1.000.000đ')
+  if (!Number.isInteger(p.foodTotal) || p.foodTotal < 0) fail('Tiền món không hợp lệ')
+  return patchOnline(s, id, { status: 'quoted', shipFee: p.fee, carrier: p.carrier, foodTotal: p.foodTotal })
+}
+
+/** Đồng ý of the guest: fee = the one the guest saw, so a fee changed a moment ago is not agreed to by accident. */
+export function agreeOnlineOrder(s: FloorState, id: string, fee: number): FloorState {
+  const r = onlineList(s).find(x => x.id === id) ?? fail('Không tìm thấy đơn')
+  if (r.status === 'agreed' || r.status === 'accepted') return s
+  if (r.status !== 'quoted') fail('Đơn này không còn chờ bạn xác nhận')
+  if (r.shipFee !== fee) fail('Quán vừa đổi phí ship, mời bạn xem lại')
+  return patchOnline(s, id, { status: 'agreed' })
+}
+
+export function cancelOnlineOrder(s: FloorState, id: string, now: Date): FloorState {
+  const r = onlineList(s).find(x => x.id === id) ?? fail('Không tìm thấy đơn')
+  if (r.status === 'cancelled') return s
+  if (!OPEN_ONLINE.includes(r.status)) fail('Quán đã nhận đơn, mời bạn gọi quán để huỷ')
+  return patchOnline(s, id, { status: 'cancelled', decidedAt: now.toISOString() })
+}
+
+/** Nhận: a takeaway order named after the guest, the lines as one round. The ship fee goes on the note, not the bill. */
+export function acceptOnlineOrder(s: FloorState, id: string, c: Ctx): { state: FloorState; orderId: string } {
+  floorStaff(c)
+  const r = onlineOrder(s, id)
+  if (r.status === 'accepted') return { state: s, orderId: r.orderId ?? '' }
+  if (r.status !== 'agreed') fail('Khách chưa đồng ý phí ship')
+  const opened = openTakeaway(s, { customerName: `${r.customerName} ${r.phone}`, id: c.newId() }, c)
+  const paid = r.payMethod === 'cod' ? 'thu khi giao' : 'đã chuyển khoản'
+  const note = `Online ${onlineCode(r.id)} · ship ${(r.shipFee ?? 0).toLocaleString('en-US')}đ · ${paid}`.slice(0, NOTE_MAX)
+  const state = sendLines(patchOrder(opened.state, opened.orderId, { note }), opened.orderId, r.lines, r.id, {}, c).state
+  return { state: patchOnline(state, id, { status: 'accepted', decidedAt: iso(c), decidedBy: c.actor.name, orderId: opened.orderId }), orderId: opened.orderId }
+}
+
+export function rejectOnlineOrder(s: FloorState, id: string, reason: string, c: Ctx): FloorState {
+  floorStaff(c)
+  const r = onlineOrder(s, id)
+  if (!OPEN_ONLINE.includes(r.status)) fail('Đơn này đã được xử lý')
+  return patchOnline(s, id, { status: 'rejected', reason: reason.trim().slice(0, 80), decidedAt: iso(c), decidedBy: c.actor.name })
+}
+
+export function setOnlineSettings(s: FloorState, p: { on: boolean; ship: ShipRules }, c: Ctx): FloorState {
+  need(c, 'settings.edit')
+  const bad = shipRulesProblem(p.ship)
+  if (bad) fail(bad)
+  return { ...s, settings: { ...s.settings, onlineOrder: p.on, onlineShip: p.ship } }
 }
 
 /** 32 random hex characters, like replace(gen_random_uuid()::text, '-', '') in 0023. */
