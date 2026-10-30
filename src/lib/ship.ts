@@ -47,5 +47,9 @@ export type Carrier = (typeof CARRIERS)[number]['id']
 
 export const carrierLabel = (c: string) => CARRIERS.find(x => x.id === c)?.label ?? ''
 
+/** Google Maps at the guest's position, else a search for the address. */
+export const deliveryMapLink = (r: { lat: number | null; lng: number | null; address: string }) =>
+  r.lat != null && r.lng != null ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}`
+
 /** The short code a guest and staff say out loud, and the VietQR transfer note. */
 export const onlineCode = (id: string) => id.slice(0, 6).toUpperCase()

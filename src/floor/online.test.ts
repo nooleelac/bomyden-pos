@@ -4,8 +4,9 @@ import { seedMenu } from '../menu/seed'
 import * as E from './engine'
 import { pendingOnline } from './logic'
 import { floorEvents } from './notify'
+import { createMemoryFloorRepo } from './repo'
 import { seedFloor } from './seed'
-import type { Actor, FloorState, SendLineInput } from './types'
+import type { Actor, Bill, FloorState, SendLineInput } from './types'
 
 const menu = seedMenu()
 const T0 = new Date('2026-10-31T12:00:00Z')
@@ -89,6 +90,15 @@ describe('đơn online', () => {
     expect(r.state.onlineOrders![0]).toMatchObject({ status: 'accepted', orderId: o.id, decidedBy: 'Hùng' })
     expect(pendingOnline(r.state)).toHaveLength(0)
     expect(E.acceptOnlineOrder(r.state, 'w-1', waiter)).toMatchObject({ state: r.state, orderId: o.id })
+  })
+
+  it('sau khi nhận và thu tiền vẫn xem lại được địa chỉ giao hàng', async () => {
+    const accepted = E.acceptOnlineOrder(E.agreeOnlineOrder(quoted(), 'w-1', 25000), 'w-1', waiter)
+    const bill = { id: 'b-1', orderId: accepted.orderId, paidAt: T0.toISOString() } as Bill
+    const other = { id: 'b-2', orderId: 'khac', paidAt: T0.toISOString() } as Bill
+    const repo = createMemoryFloorRepo({ menu: () => menu, actor: () => ({ name: 'Lan', role: 'cashier' }), initial: { ...accepted.state, bills: [bill, other] } })
+    const h = await repo.billHistory('2000-01-01', '2100-01-01')
+    expect(h.online).toEqual([expect.objectContaining({ orderId: accepted.orderId, address: '12 Nguyễn Huệ, Quận 1', phone: '0901234567' })])
   })
 
   it('khách huỷ trước khi quán nhận, sau đó thì không', () => {

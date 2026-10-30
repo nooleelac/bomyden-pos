@@ -3,13 +3,14 @@
 // Nhận & gửi bếp puts the lines on a takeaway order. The delivery itself is booked in the carrier's app.
 
 import { useState } from 'react'
-import { CARRIERS, carrierLabel, onlineCode, type Carrier } from '../../lib/ship'
+import { CARRIERS, carrierLabel, deliveryMapLink, onlineCode, type Carrier } from '../../lib/ship'
 import { describeLine, quoteLine, vnd } from '../../menu/picker'
 import type { Menu } from '../../menu/types'
 import { toPicker } from '../engine'
 import { formatDuration } from '../logic'
 import type { FloorRepo } from '../repo'
 import type { FloorState, OnlineOrder } from '../types'
+import { DeliveryCard } from './DeliveryCard'
 import { RejectSheet } from './GuestRequests'
 import '../../guest/guest.css'
 
@@ -17,16 +18,13 @@ const REJECT_REASONS = ['Món đã hết', 'Ngoài phạm vi giao', 'Quán đang
 
 const WAITING = ['pending', 'quoted', 'agreed']
 
-const mapsLink = (r: OnlineOrder) =>
-  r.lat != null && r.lng != null ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}`
-
 export function OnlineOrders(props: { floor: FloorState; menu: Menu; repo: FloorRepo; now: Date; onError: (m: string) => void; onInfo: (m: string) => void }) {
-  const { floor, repo, now } = props
+  const { floor, repo } = props
   const [rejecting, setRejecting] = useState<OnlineOrder | null>(null)
   const all = floor.onlineOrders ?? []
   const open = all.filter(r => WAITING.includes(r.status)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const decided = all
-    .filter(r => !WAITING.includes(r.status) && r.decidedAt && now.getTime() - new Date(r.decidedAt).getTime() < 2 * 3600_000)
+    .filter(r => !WAITING.includes(r.status) && r.decidedAt)
     .sort((a, b) => (b.decidedAt ?? '').localeCompare(a.decidedAt ?? ''))
   const fail = (e: unknown) => props.onError(e instanceof Error ? e.message : String(e))
 
@@ -47,19 +45,21 @@ export function OnlineOrders(props: { floor: FloorState; menu: Menu; repo: Floor
 
       {decided.length > 0 && (
         <section className="card">
-          <h2>Đã xử lý (2 giờ qua)</h2>
+          <h2>Đã xử lý gần đây</h2>
+          <p className="muted small">Đơn đã thu tiền: xem lại địa chỉ ở Hoá đơn.</p>
           <ul className="rows">
             {decided.map(r => (
-              <li key={r.id} className="guest-line">
-                <span>
-                  <b>
-                    {r.customerName}: {r.status === 'accepted' ? 'đã nhận' : r.status === 'cancelled' ? 'khách huỷ' : 'từ chối'}
-                  </b>
-                  <span className="muted small">
-                    {[onlineCode(r.id), r.decidedBy, r.reason].filter(Boolean).join(' · ')}
+              <li key={r.id} className="online-done">
+                {r.status === 'accepted' && <DeliveryCard order={r} />}
+                <div className="guest-line">
+                  <span>
+                    <b>
+                      {r.customerName}: {r.status === 'accepted' ? 'đã nhận' : r.status === 'cancelled' ? 'khách huỷ' : 'từ chối'}
+                    </b>
+                    <span className="muted small">{[onlineCode(r.id), r.decidedBy, r.reason].filter(Boolean).join(' · ')}</span>
                   </span>
-                </span>
-                {r.orderId && <a href={`#/ban/don/${r.orderId}`}>Xem đơn ›</a>}
+                  {r.orderId && <a href={`#/ban/don/${r.orderId}`}>Xem đơn ›</a>}
+                </div>
               </li>
             ))}
           </ul>
@@ -130,7 +130,7 @@ function OnlineCard(props: { order: OnlineOrder; menu: Menu; repo: FloorRepo; no
         <button type="button" className="btn btn-small" onClick={copy}>
           Chép địa chỉ
         </button>
-        <a className="btn btn-small" href={mapsLink(r)} target="_blank" rel="noreferrer">
+        <a className="btn btn-small" href={deliveryMapLink(r)} target="_blank" rel="noreferrer">
           Xem bản đồ
         </a>
       </div>

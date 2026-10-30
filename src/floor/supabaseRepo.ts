@@ -40,6 +40,15 @@ const n = (v: unknown) => Number(v ?? 0)
 const nn = (v: unknown) => (v == null ? null : Number(v))
 const idOf = (r: unknown) => s((r as Row | null)?.id)
 
+function onlineFromRow(r: Row, name: (id: unknown) => string): OnlineOrder {
+  return {
+    id: s(r.id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), customerName: s(r.customer_name), phone: s(r.phone), address: s(r.address),
+    lat: nn(r.lat), lng: nn(r.lng), distanceM: nn(r.distance_m), shipEstimate: nn(r.ship_estimate), payMethod: r.pay_method === 'cod' ? 'cod' : 'transfer',
+    foodTotal: nn(r.food_total), shipFee: nn(r.ship_fee), carrier: s(r.carrier) as OnlineOrder['carrier'], status: r.status as OnlineStatus, reason: s(r.reason),
+    createdAt: s(r.created_at), decidedAt: sn(r.decided_at), decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
+  }
+}
+
 /** branch_settings.online_ship (0027). */
 export function shipFrom(v: unknown): ShipRules {
   const r = (v as Row | null) ?? {}
@@ -196,12 +205,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         status: r.status as GuestRequestStatus, reason: s(r.reason), createdAt: s(r.created_at), decidedAt: sn(r.decided_at),
         decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
       })),
-      onlineOrders: list('online_orders').map((r): OnlineOrder => ({
-        id: s(r.id), lines: (r.lines as SendLineInput[] | null) ?? [], note: s(r.note), customerName: s(r.customer_name), phone: s(r.phone), address: s(r.address),
-        lat: nn(r.lat), lng: nn(r.lng), distanceM: nn(r.distance_m), shipEstimate: nn(r.ship_estimate), payMethod: r.pay_method === 'cod' ? 'cod' : 'transfer',
-        foodTotal: nn(r.food_total), shipFee: nn(r.ship_fee), carrier: s(r.carrier) as OnlineOrder['carrier'], status: r.status as OnlineStatus, reason: s(r.reason),
-        createdAt: s(r.created_at), decidedAt: sn(r.decided_at), decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
-      })),
+      onlineOrders: list('online_orders').map(r => onlineFromRow(r, name)),
     }
     if (no === loadNo) cache = out
     return out
@@ -345,11 +349,16 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       const bills = raw.map(b => billFromRow(b, id => names.get(id) ?? ''))
       const orderIds = [...new Set(bills.map(b => b.orderId))]
       const lines: SoldLine[] = []
+      const online: OnlineOrder[] = []
+      for (let i = 0; i < orderIds.length; i += 200) {
+        const part = await rows(db.from('online_orders').select('*').in('order_id', orderIds.slice(i, i + 200)))
+        online.push(...part.map(r => onlineFromRow(r, id => names.get(id) ?? '')))
+      }
       for (let i = 0; i < orderIds.length; i += 200) {
         const part = await rows(db.from('order_items').select('order_id, name, variant_name, qty, price').in('order_id', orderIds.slice(i, i + 200)).neq('status', 'void'))
         lines.push(...part.map(l => ({ orderId: s(l.order_id), name: s(l.name), variantName: s(l.variant_name), qty: n(l.qty), amount: n(l.price) * n(l.qty) })))
       }
-      return { bills, lines }
+      return { bills, lines, online }
     },
     saveArea: a => act(() => ok(db.from('areas').upsert({ id: a.id, name: a.name.trim(), sort: a.sort, active: a.active }))),
     saveShop: p =>

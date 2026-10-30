@@ -19,6 +19,7 @@ import { clock, formatDuration, groupLabel, isUnfinished, lineParts, orderAmount
 import type { FloorRepo } from '../repo'
 import { LINE_STATUS_LABEL, NOTE_MAX, RUSH_REASONS, type FloorState, type Line, type Role } from '../types'
 import { MergeSheet, MoveItemsSheet, MoveTableSheet, ReleaseSheet, SplitSheet, VoidOrderSheet, VoidSheet } from './actions'
+import { DeliveryCard } from './DeliveryCard'
 import { SharedOrderSheet } from './FloorMap'
 import { Sheet } from './Sheet'
 
@@ -84,6 +85,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
   }
 
   const label = orderLabel(floor, order)
+  const shipTo = floor.onlineOrders?.find(r => r.orderId === order.id)
   const group = groupLabel(floor, order)
   const canPay = roleCan(role, 'pay.collect')
   const canSplit = roleCan(role, 'order.split')
@@ -219,6 +221,8 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
           {group && <span className="badge"> {group}</span>}
         </span>
       </div>
+
+      {shipTo && tab !== 'menu' && <DeliveryCard order={shipTo} />}
 
       {rejected.map(n => (
         <p key={n.id} className="notice-bar">

@@ -17,6 +17,7 @@ import { METHOD_LABEL, formatVnd, type PayMethod } from '../lib/billing'
 import { errText, useLive, useNow, useRoute } from '../floor/hooks'
 import { clock } from '../floor/logic'
 import type { FloorRepo } from '../floor/repo'
+import { DeliveryCard } from '../floor/screens/DeliveryCard'
 import type { Bill, BillHistory, FloorState } from '../floor/types'
 import type { MenuRepo } from '../menu/repo'
 import { billSummary, receiptTableTitle } from '../cashier/bill'
@@ -243,6 +244,7 @@ function BillDetail(props: { repo: FloorRepo; floor: FloorState; billId: string;
   const bill = h?.bills.find(b => b.id === billId) ?? live
   if (!bill) return h ? <p className="empty">Không tìm thấy hoá đơn. <a href="#/hoa-don">← Danh sách hoá đơn</a></p> : <p className="empty">Đang tải…</p>
   const lines = h?.lines.filter(l => l.orderId === bill.orderId) ?? []
+  const delivery = [...(h?.online ?? []), ...(floor.onlineOrders ?? [])].find(r => r.orderId === bill.orderId)
   const change = bill.payments.reduce((s, p) => s + (p.tendered && p.tendered > p.amount ? p.tendered - p.amount : 0), 0)
   const canReprint = !!live && canOpen(session.role, ['thu-ngan'])
   const remove = () => {
@@ -268,6 +270,8 @@ function BillDetail(props: { repo: FloorRepo; floor: FloorState; billId: string;
         <p className="muted small">
           Thu lúc {clock(bill.paidAt)} {dayLabel(businessDay(bill.paidAt, props.dayStart), true)} · thu ngân {bill.cashier || '—'}
         </p>
+
+        {delivery && <DeliveryCard order={delivery} />}
 
         <h2 className="detail-h">Món</h2>
         {lines.length ? (

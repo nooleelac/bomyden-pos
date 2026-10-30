@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { METHOD_LABEL, formatVnd } from '../../lib/billing'
 import { errText, go } from '../../floor/hooks'
 import type { FloorRepo } from '../../floor/repo'
+import { DeliveryCard } from '../../floor/screens/DeliveryCard'
 import type { FloorState } from '../../floor/types'
 import { billData, receiptTableTitle } from '../bill'
 import { printBlocks } from '../print'
@@ -26,6 +27,7 @@ export function BillPage(props: { floor: FloorState; repo: FloorRepo; billId: st
   if (!bill) return <p className="empty">Không tìm thấy hoá đơn. <a href="#/thu-ngan">Về thu ngân</a></p>
   const change = bill.payments.reduce((s, p) => s + (p.tendered && p.tendered > p.amount ? p.tendered - p.amount : 0), 0)
   const hasLines = floor.lines.some(l => l.orderId === bill.orderId)
+  const delivery = floor.onlineOrders?.find(r => r.orderId === bill.orderId)
 
   const print = async () => {
     setBusy(true)
@@ -49,6 +51,7 @@ export function BillPage(props: { floor: FloorState; repo: FloorRepo; billId: st
           <h1>
             {bill.billNo} · {receiptTableTitle(bill.tableLabel)}
           </h1>
+          {delivery && <DeliveryCard order={delivery} />}
           <p className="paid-total">
             Đã thu <b>{formatVnd(bill.total)}</b>
           </p>

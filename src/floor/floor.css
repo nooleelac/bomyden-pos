@@ -333,3 +333,11 @@
 .guest-call { border-left: 4px solid var(--warn); }
 .guest-call.is-bill { border-left-color: var(--ok); }
 .guest-call .btn-row .btn:not(.btn-grow) { text-decoration: none; }
+
+/* Giao tới đâu: đơn online sau khi nhận */
+.delivery-card { margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.delivery-card p { margin: 0 0 4px; overflow-wrap: anywhere; }
+.delivery-card .btn-pair { margin-top: 6px; }
+.card .delivery-card, .online-done .delivery-card { margin: 8px 0; }
+.online-done { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.online-done .guest-line { border-bottom: 0; padding: 4px 0; }

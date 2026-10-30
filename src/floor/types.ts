@@ -421,6 +421,8 @@ export interface SoldLine {
 export interface BillHistory {
   bills: Bill[]
   lines: SoldLine[]
+  /** Who the delivered bills went to (0027). */
+  online?: OnlineOrder[]
 }
 
 /** Ca thu ngân: one open shift per register; cash needs an open shift. */

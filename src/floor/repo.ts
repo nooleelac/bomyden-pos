@@ -233,7 +233,8 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
       const own = state.lines
         .filter(l => l.status !== 'void' && ids.has(l.orderId))
         .map(l => ({ orderId: l.orderId, name: l.name, variantName: l.variantName, qty: l.qty, amount: l.price * l.qty }))
-      return structuredClone({ bills, lines: [...old.lines.filter(l => ids.has(l.orderId)), ...own] })
+      const online = (state.onlineOrders ?? []).filter(r => r.orderId && ids.has(r.orderId))
+      return structuredClone({ bills, lines: [...old.lines.filter(l => ids.has(l.orderId)), ...own], online })
     },
     saveArea: a => run((s, c) => E.saveArea(s, a, c)),
     saveTable: t => run((s, c) => E.saveTable(s, t, c)),
