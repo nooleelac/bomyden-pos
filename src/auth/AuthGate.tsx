@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { errText, go, session as floorSession, useRoute } from '../floor/hooks'
+import { defaultTheme, keepTheme } from '../theme/theme'
 import '../menu/menu.css'
 import './auth.css'
 import { ApprovalDialog } from './ApprovalDialog'
@@ -25,6 +26,12 @@ export function AuthGate(props: { repo: AuthRepo; children: ReactNode }) {
   const [perms, setPerms] = useState<PermMatrix>(permMatrix)
   const [notice, setNotice] = useState('')
   const [branch, setBranch] = useState<BranchInfo | null>(null)
+  // the branch's colours (Cài đặt → Giao diện, 0035), on sign-in and whenever branches change; a server without
+  // 0035 sends no theme and this device keeps the colours it has
+  const branchTheme = branch?.theme
+  useEffect(() => {
+    if (branchTheme !== undefined) keepTheme(branchTheme ?? defaultTheme())
+  }, [branchTheme])
   const [prompt, setPrompt] = useState<{ p: ApprovalPrompt; resolve: (a: Approved | null) => void } | null>(null)
   const route = useRoute()
   const lastActivity = useRef(Date.now())

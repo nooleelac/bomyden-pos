@@ -501,7 +501,7 @@ const ACTION_LABEL: Record<string, string> = {
   discount: 'Giảm giá', void_item: 'Huỷ món', void_order: 'Huỷ đơn', staff_add: 'Thêm nhân viên', staff_edit: 'Sửa nhân viên',
   staff_off: 'Ngừng làm', staff_on: 'Làm lại', pin_reset: 'Đặt lại PIN', device_code: 'Tạo mã máy', device_registered: 'Đăng ký máy',
   device_on: 'Mở lại máy', device_off: 'Khoá máy', settings: 'Đổi cài đặt', open_shift: 'Mở ca', close_shift: 'Chốt ca', reprint: 'In lại hoá đơn',
-  modify_item: 'Sửa món', sold_out: 'Báo hết', restock: 'Có lại', delete: 'Xoá vĩnh viễn',
+  modify_item: 'Sửa món', sold_out: 'Báo hết', restock: 'Có lại', delete: 'Xoá vĩnh viễn', branch_theme: 'Đổi màu giao diện',
 }
 const DELETE_KIND: Record<string, string> = {
   category: 'nhóm món', item: 'món', group: 'nhóm tuỳ chọn', area: 'khu', table: 'bàn', order: 'đơn / hoá đơn', shift: 'ca', staff: 'nhân viên', device: 'máy',

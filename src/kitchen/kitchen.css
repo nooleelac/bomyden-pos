@@ -60,6 +60,8 @@
   flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 8px; border: 0; cursor: pointer; text-align: left;
   background: var(--k-ok); color: #fff;
 }
+/* the head is a button: ".kds button { color: inherit }" would win over the white above */
+.kds .ticket-head { color: #fff; }
 .heat-warn .ticket-head { background: var(--k-warn); color: #111; }
 .heat-late .ticket-head { background: var(--k-late); }
 .is-takeaway .ticket-head { background: var(--k-purple); color: #fff; }
@@ -75,8 +77,8 @@
 .flag-rush, .flag-chase { background: var(--k-red); color: #fff; }
 .flag-recall { background: #ffb020; color: #111; }
 .flag-move { background: var(--k-blue); color: #fff; }
-.ticket-note { flex: none; margin: 6px 8px 0; padding: 3px 8px; line-height: 1.2; border: 2px solid #ffb020; background: #fff8e6; border-radius: 8px; font-weight: 700; display: flex; flex-direction: column; font-size: .9em; }
-.ticket-note.is-allergy { border-color: var(--k-red); color: var(--k-red); background: #fdecec; }
+.ticket-note { flex: none; margin: 6px 8px 0; padding: 3px 8px; line-height: 1.2; border: 2px solid #ffb020; background: var(--k-note-bg, #fff8e6); border-radius: 8px; font-weight: 700; display: flex; flex-direction: column; font-size: .9em; }
+.ticket-note.is-allergy { border-color: var(--k-red); color: var(--k-red); background: var(--k-red-bg, #fdecec); }
 .ticket-lines { flex: none; list-style: none; margin: 0; padding: 4px 0; }
 .tl { border-bottom: 1px solid var(--k-line); }
 .tl-main { color: var(--k-text); width: 100%; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: flex-start; padding: 5px 8px; background: none; border: 0; text-align: left; cursor: pointer; min-height: 40px; }
@@ -87,14 +89,14 @@
 .tl-size { font-weight: 800; color: var(--k-yellow); }
 .tl-opt { color: var(--k-yellow); font-weight: 700; }
 .tl-removal { color: var(--k-red); font-weight: 900; }
-.tl-addon { color: #0b7285; font-weight: 700; }
+.tl-addon { color: var(--k-addon, #0b7285); font-weight: 700; }
 .tl-note { font-style: italic; font-weight: 700; color: var(--k-red); }
 .tl-side-tag { font-size: .7em; font-weight: 700; color: var(--k-muted); text-transform: uppercase; }
 .tl-parts { font-weight: 900; }
 .tl-others { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .tl-others .tl-state { margin-left: 0; font-size: .65em; }
 .tl-state.st-void { color: #fff; background: var(--k-red); }
-.tl-state { flex: none; margin-left: auto; align-self: flex-start; padding: 2px 8px; border-radius: 6px; font-size: .7em; font-weight: 800; background: #dbe2f1; color: var(--k-text); }
+.tl-state { flex: none; margin-left: auto; align-self: flex-start; padding: 2px 8px; border-radius: 6px; font-size: .7em; font-weight: 800; background: var(--k-soft, #dbe2f1); color: var(--k-text); }
 .tl-state.st-cooking, .tl-state.st-ready { color: #fff; }
 .tl-state.st-cooking { background: var(--k-blue); }
 .tl-state.st-ready { background: var(--k-ok); }
@@ -104,8 +106,8 @@
 .tl-void .tl-state { background: var(--k-red); }
 .notice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; font-weight: 700; }
 .notice .kds-btn { min-height: 34px; margin-left: auto; }
-.notice-void { background: #fdecec; }
-.notice-modify { background: #fff3e0; }
+.notice-void { background: var(--k-red-bg, #fdecec); }
+.notice-modify { background: var(--k-note-bg, #fff3e0); }
 .notice-badge { padding: 1px 8px; border-radius: 6px; font-weight: 900; font-size: 1.05em; }
 .notice-void .notice-badge { background: var(--k-red); color: #fff; }
 .notice-modify .notice-badge { background: #ffb020; color: #111; }
@@ -117,8 +119,8 @@
 .ticket-bump:disabled { opacity: .35; }
 
 .kds-undo, .kds-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 12px 18px; border-radius: 12px; font-weight: 700; }
-.kds-undo { background: var(--k-text); color: #fff; }
-.kds-undo .kds-btn { background: transparent; color: #fff; border-color: rgba(255,255,255,.5); }
+.kds-undo { background: var(--k-text); color: var(--k-card); }
+.kds-undo .kds-btn { background: transparent; color: inherit; border-color: currentColor; }
 .kds-toast { background: var(--k-late); color: #fff; bottom: 90px; }
 .kds-done { flex: 1; overflow: auto; padding: 12px 16px; }
 .kds-done ul { list-style: none; margin: 0; padding: 0; }

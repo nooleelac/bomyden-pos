@@ -6,6 +6,7 @@
 // #/cai-dat/ma-qr: QR stickers per table for khách tự gọi món (GuestQrSettings).
 // #/cai-dat/dat-hang: đơn giao hàng từ web, bảng giá ship tạm tính (OnlineSettings).
 // #/cai-dat/thong-bao: push on this device, đọc to tiền về, the Pay2S link (NotifySettings).
+// #/cai-dat/giao-dien: the branch's colours (ThemeSettings).
 // #/cai-dat/chi-nhanh: the owner's branches; #/cai-dat/gio-lam: this branch's opening hours (BranchSettings).
 
 import { useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
@@ -25,6 +26,7 @@ import { OnlineSettings } from './OnlineSettings'
 import { PaymentSettings } from './PaymentSettings'
 import { PrintSettingsPage } from './PrintSettings'
 import { ReceiptTemplateSettings } from './ReceiptTemplateSettings'
+import { ThemeSettings } from './ThemeSettings'
 import './settings.css'
 
 export function SettingsApp() {
@@ -57,6 +59,7 @@ export function SettingsApp() {
         {(floor, onError, onInfo) => <NotifySettings floor={floor} repo={repos.floor} onError={onError} onInfo={onInfo} />}
       </PaymentPage>
     )
+  if (route[1] === 'giao-dien') return <ToastPage>{(onError, onInfo) => <ThemeSettings onError={onError} onInfo={onInfo} />}</ToastPage>
   if (route[1] === 'chi-nhanh') return <ToastPage>{(onError, onInfo) => <BranchesPage onError={onError} onInfo={onInfo} />}</ToastPage>
   if (route[1] === 'gio-lam') return <ToastPage>{(onError, onInfo) => <OpeningHoursPage onError={onError} onInfo={onInfo} />}</ToastPage>
   const items = settingsFor(session.role)

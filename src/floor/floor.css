@@ -26,7 +26,7 @@
 .order-pick.pg-done { border-left: 3px solid var(--pg-done); padding-left: 8px; }
 
 /* app frame: ☰ + shop name + who, tab bar at the bottom, drawer */
-.topbar-menu { flex: none; width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; color: var(--text); font-size: 24px; line-height: 1; }
+.topbar-menu { flex: none; width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; color: inherit; font-size: 24px; line-height: 1; }
 .topbar-menu:hover { background: var(--accent-soft); }
 .topbar > .brand { flex: 1; text-align: center; }
 .bottom-nav {
@@ -115,7 +115,7 @@
 .table-chip.st-bill { border-color: var(--st-bill); }
 
 /* ready list */
-.ready-bar { background: #e6f7ee; color: #127a42; border-bottom: 1px solid #b6e6cb; }
+.ready-bar { background: var(--ok-bg, #e6f7ee); color: var(--ok-fg, #127a42); border-bottom: 1px solid var(--ok-line, #b6e6cb); }
 .ready-toggle { width: 100%; display: flex; gap: 6px; align-items: center; justify-content: space-between; padding: 10px 16px; background: none; border: 0; font-weight: 600; text-align: left; }
 .ready-bar ul { list-style: none; margin: 0; padding: 0 16px 8px; }
 .ready-bar li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(0,0,0,.08); }
@@ -208,7 +208,7 @@
 .bell-spacer { width: 44px; }
 .bell-btn { position: relative; width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; font-size: 24px; line-height: 1; }
 .bell-btn:hover { background: var(--accent-soft); }
-.bell-count { position: absolute; top: 0; right: -4px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: var(--danger); color: #fff; font-size: 12px; font-weight: 800; line-height: 22px; text-align: center; border: 2px solid var(--surface); }
+.bell-count { position: absolute; top: 0; right: -4px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: var(--danger); color: #fff; font-size: 12px; font-weight: 800; line-height: 22px; text-align: center; border: 2px solid var(--bar, var(--surface)); }
 .bell-backdrop { position: fixed; inset: 0; z-index: 30; }
 .bell-panel {
   position: fixed; top: 60px; right: 8px; z-index: 31; width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 140px); overflow-y: auto;
@@ -233,7 +233,7 @@
 .bell-time { flex: none; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .bell-pop {
   position: fixed; top: 62px; right: 8px; z-index: 32; max-width: min(420px, calc(100vw - 16px)); padding: 12px 14px; border-radius: 12px;
-  background: var(--text); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none; box-shadow: 0 8px 24px rgba(20, 30, 50, .3);
+  background: var(--text); color: var(--surface); font-weight: 600; font-size: 14px; text-decoration: none; box-shadow: 0 8px 24px rgba(20, 30, 50, .3);
   animation: bell-in .2s ease-out;
 }
 @keyframes bell-in { from { transform: translateY(-8px); opacity: 0; } }
@@ -274,7 +274,7 @@
 .qty-stepper { display: inline-flex; align-items: center; gap: 14px; }
 .qty-stepper > span { min-width: 20px; text-align: center; font-size: 17px; }
 .qty-stepper button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent); font-size: 24px; line-height: 1; }
-.qty-stepper button:first-child { background: #eef1f6; color: var(--muted); }
+.qty-stepper button:first-child { background: var(--soft, #eef1f6); color: var(--muted); }
 .qty-stepper button:disabled { opacity: .35; }
 .detail-sum-row { display: flex; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px dashed var(--line); color: var(--slate); font-size: 16px; }
 .order-view.view-detail main { padding-bottom: 240px; }
@@ -318,7 +318,7 @@
 .order-card.st-paying { border-top-color: var(--st-paying); }
 .order-card.st-paying .order-card-tag { background: var(--st-paying); }
 /* the branch under the shop name (0022) */
-.topbar .brand-branch { display: block; font-size: 11px; font-weight: 600; color: var(--slate); line-height: 1.1; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
+.topbar .brand-branch { display: block; font-size: 11px; font-weight: 600; color: var(--bar-muted, var(--slate)); line-height: 1.1; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
 .drawer-branch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 14px; color: var(--slate); }
 .drawer-branch select { flex: 1; min-width: 0; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 

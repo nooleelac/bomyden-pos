@@ -2,6 +2,7 @@
 // and the database (supabaseRepo.ts).
 
 import type { Role } from '../floor/types'
+import type { Theme } from '../theme/theme'
 
 export type { Role }
 
@@ -42,6 +43,8 @@ export interface Branch {
   enforceHours: boolean
   /** HH:MM where the business day (reports, takeaway numbers) starts. */
   businessDayStart: string
+  /** sample store only: the branch's colours (the server keeps them in branches.theme, 0035) */
+  theme?: Theme | null
   staff: number
   devices: number
   items: number
@@ -56,6 +59,8 @@ export interface BranchInfo {
   canSwitch: boolean
   /** Inside the opening hours now (or no hours set). */
   isOpen: boolean
+  /** Cài đặt → Giao diện (0035): the branch's colours; null = default, undefined = server not migrated yet. */
+  theme?: Theme | null
 }
 
 export interface BranchInput {

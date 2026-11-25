@@ -14,6 +14,7 @@ import {
   type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type Device, type OpeningHours, type Role, type Session, type SignInResult, type StaffRecord,
 } from './types'
 import { liveTables } from '../lib/live'
+import { themeFrom } from '../theme/theme'
 
 type Row = Record<string, unknown>
 const SESSION_KEY = 'bmd-staff-session'
@@ -61,6 +62,8 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
   })
   const toInfo = (r: Row): BranchInfo => ({
     id: s(r.id), name: s(r.name), deviceBranchId: sn(r.device_branch_id), canSwitch: r.can_switch === true, isOpen: r.is_open !== false,
+    // 0035: no key before the migration (keep this device's colours), null = default
+    ...('theme' in r ? { theme: themeFrom(r.theme) } : {}),
   })
   return {
     source: 'supabase',
@@ -200,6 +203,7 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
       return s(r.id)
     },
     saveOpeningHours: async (hours, enforce, dayStart) => void (await rpc(db, 'save_opening_hours', { p_hours: hours, p_enforce: enforce, p_day_start: dayStart })),
+    saveTheme: async theme => void (await rpc(db, 'set_branch_theme', { p_theme: theme })),
     subscribe(onChange) {
       return liveTables(db, 'staff-changes', ['staff', 'devices', 'role_permissions', 'branches'], onChange, 300_000)
     },

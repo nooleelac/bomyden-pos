@@ -4,6 +4,7 @@
 // The floor engine checks approvals through consumeApproval (sample stand-in for the p_approval check in SQL).
 
 import { newId } from '../menu/repo'
+import { themeFrom } from '../theme/theme'
 import { APPROVAL_PERM, DEFAULT_PERMS, PERM_LABEL, PERM_ROLES, cleanPerms, roleCan, type Perm, type PermMatrix } from './permissions'
 import { hoursProblem, isOpenAt } from './branch'
 import { attemptPin, isLocked, pinProblem, type PinState } from './pin'
@@ -204,7 +205,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     const list = branchesOf(s)
     const b = list.find(x => x.id === myBranchId && x.active) ?? list[0]
     const who = me(s)
-    return who ? { id: b.id, name: b.name, deviceBranchId: list[0].id, canSwitch: who.role === 'owner', isOpen: isOpenAt(b.openingHours, now()) } : null
+    return who ? { id: b.id, name: b.name, deviceBranchId: list[0].id, canSwitch: who.role === 'owner', isOpen: isOpenAt(b.openingHours, now()), theme: b.theme ?? null } : null
   }
 
   const device = (s: Store) => s.devices.find(d => d.id === myDeviceId && d.active) ?? null
@@ -597,6 +598,14 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const b = branchesOf(s).find(x => x.id === branchInfo(s)?.id) ?? fail('Không tìm thấy chi nhánh')
       Object.assign(b, { openingHours: hours, enforceHours: enforce, businessDayStart: dayStart })
       audit(s, 'opening_hours', { enforce })
+      save()
+    },
+    async saveTheme(theme) {
+      const s = await db()
+      requirePerm(s, 'settings.edit')
+      const b = branchesOf(s).find(x => x.id === branchInfo(s)?.id) ?? fail('Không tìm thấy chi nhánh')
+      b.theme = theme ? themeFrom(theme) : null
+      audit(s, 'branch_theme', theme ? { ...theme } : {})
       save()
     },
     subscribe(fn) {

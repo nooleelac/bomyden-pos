@@ -2,6 +2,7 @@
 // createMemoryAuthRepo (memoryRepo.ts) runs on sample staff in this browser; createSupabaseAuthRepo
 // (supabaseRepo.ts) runs the same screens on 0006 (PINs hashed with bcrypt on the server).
 
+import type { Theme } from '../theme/theme'
 import type { Perm, PermMatrix, PermRole } from './permissions'
 import type {
   ApprovalRequest, ApprovalResult, AuditEntry, AuditQuery, AuthSettings, Branch, BranchInfo, BranchInput, Device, DeviceCode, DeviceKind, OpeningHours, Role, Session, SignInResult, StaffInput, StaffRecord,
@@ -58,6 +59,8 @@ export interface AuthRepo {
   saveBranch(inp: BranchInput): Promise<string>
   /** settings.edit: this branch's opening hours, whether they are enforced, and where its business day starts. */
   saveOpeningHours(hours: OpeningHours, enforce: boolean, dayStart: string): Promise<void>
+  /** settings.edit: this branch's colours (Cài đặt → Giao diện, 0035); null = back to the default. */
+  saveTheme(theme: Theme | null): Promise<void>
   /** Staff, device or permission changes from any tab/device. Returns unsubscribe. */
   subscribe(onChange: () => void): () => void
   /** Sample only: the sample accounts and PINs, shown on the sign-in screen of the sample. */
