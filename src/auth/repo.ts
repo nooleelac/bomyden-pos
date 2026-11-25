@@ -4,7 +4,7 @@
 
 import type { Perm, PermMatrix, PermRole } from './permissions'
 import type {
-  ApprovalRequest, ApprovalResult, AuditEntry, AuthSettings, Branch, BranchInfo, BranchInput, Device, DeviceCode, DeviceKind, OpeningHours, RosterEntry, Session, SignInResult, StaffInput, StaffRecord,
+  ApprovalRequest, ApprovalResult, AuditEntry, AuthSettings, Branch, BranchInfo, BranchInput, Device, DeviceCode, DeviceKind, OpeningHours, Role, Session, SignInResult, StaffInput, StaffRecord,
 } from './types'
 
 export interface DeviceRow extends Device {
@@ -19,16 +19,15 @@ export interface AuthRepo {
   registerDevice(code: string): Promise<Device>
   settings(): Promise<AuthSettings>
   saveSettings(p: Partial<AuthSettings>): Promise<void>
-  /** Names on the sign-in screen of this device. */
-  roster(): Promise<RosterEntry[]>
-  signIn(staffId: string, pin: string): Promise<SignInResult>
+  /** Sign in with one's own account (tên đăng nhập) and PIN; the device never lists the staff (0033). */
+  signIn(username: string, pin: string): Promise<SignInResult>
   /** The session this tab had before a reload, if still valid. */
   resume(): Promise<Session | null>
   /** Activity: push the idle sign-out back. Resolves with the new expiry; rejects when the session is over. */
   touch(): Promise<string | null>
   signOut(): Promise<void>
-  /** A manager's PIN for one action on one order: a short-lived single-use token. Wrong PINs count to the lock. */
-  verifyManagerPin(managerId: string, pin: string, req: ApprovalRequest): Promise<ApprovalResult>
+  /** A manager's account and PIN for one action on one order: a short-lived single-use token. Wrong PINs count to the lock. */
+  verifyManagerPin(username: string, pin: string, req: ApprovalRequest): Promise<ApprovalResult>
   listStaff(): Promise<StaffRecord[]>
   /** Add (no id; PIN required) or edit. Resolves with the staff id. */
   saveStaff(inp: StaffInput): Promise<string>
@@ -60,6 +59,6 @@ export interface AuthRepo {
   saveOpeningHours(hours: OpeningHours, enforce: boolean, dayStart: string): Promise<void>
   /** Staff, device or permission changes from any tab/device. Returns unsubscribe. */
   subscribe(onChange: () => void): () => void
-  /** Sample only: the sample PINs shown on the sign-in screen. */
-  samplePins?(): Record<string, string>
+  /** Sample only: the sample accounts and PINs, shown on the sign-in screen of the sample. */
+  sampleAccounts?(): { username: string; name: string; role: Role; pin: string }[]
 }

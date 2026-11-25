@@ -1,14 +1,15 @@
-// Screens before anyone works: register this device (once), pick your name and enter your PIN, and the page
+// Screens before anyone works: register this device (once), type your account and PIN (no list of names), and the page
 // shown when a role opens a screen it may not use.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { errText, go } from '../floor/hooks'
-import { SCREEN_LABEL, homeRoute, isManager, screenOf, screenPerms } from './guards'
+import { SCREEN_LABEL, homeRoute, screenOf, screenPerms } from './guards'
 import { PERM_LABEL } from './permissions'
 import { PinPad } from './PinPad'
 import { isLocked } from './pin'
 import type { AuthRepo } from './repo'
-import { ROLE_LABEL, type Device, type Role, type RosterEntry, type Session } from './types'
+import { ROLE_LABEL, type Device, type Session } from './types'
+import { lastUsername, normalizeUsername, rememberUsername } from './username'
 
 const hhmm = (iso: string) => new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString().slice(11, 16)
 
@@ -68,49 +69,47 @@ export function DeviceSetup(props: { repo: AuthRepo; onDone: (d: Device) => void
   )
 }
 
-const GROUPS: { label: string; roles: Role[] }[] = [
-  { label: 'Phục vụ', roles: ['waiter'] },
-  { label: 'Thu ngân', roles: ['cashier'] },
-  { label: 'Bếp và bar', roles: ['kitchen'] },
-  { label: 'Quản lý', roles: ['manager', 'owner'] },
-]
-
 export function SignInScreen(props: { repo: AuthRepo; device: Device; notice?: string; onSignedIn: (s: Session) => void }) {
   const { repo, device } = props
-  const [roster, setRoster] = useState<RosterEntry[] | null>(null)
-  const [pick, setPick] = useState<string | null>(null)
+  const [username, setUsername] = useState(lastUsername)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [tries, setTries] = useState(0)
+  const [lock, setLock] = useState<{ user: string; until: string } | null>(null)
   const [now, setNow] = useState(() => new Date())
+  const userRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    const load = () => repo.roster().then(setRoster, e => setError(errText(e)))
-    load()
-    const off = repo.subscribe(load)
     const t = setInterval(() => setNow(new Date()), 15_000)
-    return () => {
-      off()
-      clearInterval(t)
-    }
-  }, [repo])
-  const person = roster?.find(r => r.id === pick) ?? null
-  const pins = repo.samplePins?.()
+    if (!lastUsername()) userRef.current?.focus()
+    return () => clearInterval(t)
+  }, [])
+  const user = normalizeUsername(username)
+  const locked = !!lock && lock.user === user && isLocked(lock.until, now)
   const submit = async (pin: string) => {
-    if (!person) return
+    if (!user) {
+      setError('Nhập tài khoản trước')
+      setTries(t => t + 1)
+      userRef.current?.focus()
+      return
+    }
     setBusy(true)
     try {
-      const r = await repo.signIn(person.id, pin)
-      if (r.ok) return props.onSignedIn(r.session)
+      const r = await repo.signIn(user, pin)
+      if (r.ok) {
+        rememberUsername(user)
+        return props.onSignedIn(r.session)
+      }
       setError(r.error)
       setTries(t => t + 1)
-      if (r.lockedUntil) setRoster(rs => rs?.map(x => (x.id === person.id ? { ...x, lockedUntil: r.lockedUntil! } : x)) ?? null)
+      if (r.lockedUntil) setLock({ user, until: r.lockedUntil })
     } catch (e) {
       setError(errText(e))
+      setTries(t => t + 1)
     } finally {
       setBusy(false)
     }
   }
-  const locked = person ? isLocked(person.lockedUntil, now) : false
+  const samples = repo.sampleAccounts?.()
   return (
     <div className="menu-app auth-app">
       <header className="topbar">
@@ -120,75 +119,79 @@ export function SignInScreen(props: { repo: AuthRepo; device: Device; notice?: s
         </span>
       </header>
       {repo.source === 'sample' && (
-        <div className="sample-banner">Nhân viên mẫu, PIN mẫu ghi dưới mỗi tên. Quản lý đổi tên và PIN thật ở màn Nhân viên.</div>
+        <div className="sample-banner">Bản mẫu: tài khoản và PIN mẫu ở cuối trang. Quản lý đặt tên đăng nhập và PIN thật ở màn Nhân viên.</div>
       )}
-      <main className="signin">
-        <section className={'signin-names' + (person ? ' has-pick' : '')} aria-label="Chọn tên">
-          <h1>Ai đang dùng máy?</h1>
+      <main className="auth-main">
+        <form className="auth-card signin-card" aria-label="Đăng nhập" onSubmit={e => e.preventDefault()}>
+          <h1>Đăng nhập</h1>
           {props.notice && <p className="auth-notice">{props.notice}</p>}
-          {!roster && !error && <p className="muted">Đang tải…</p>}
-          {GROUPS.map(g => {
-            const people = (roster ?? []).filter(r => g.roles.includes(r.role))
-            if (!people.length) return null
-            return (
-              <div key={g.label} className="name-group">
-                <h2>{g.label}</h2>
-                <div className="name-grid">
-                  {people.map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={'name-tile' + (pick === p.id ? ' is-on' : '') + (isLocked(p.lockedUntil, now) ? ' is-locked' : '')}
-                      aria-pressed={pick === p.id}
-                      onClick={() => {
-                        setPick(p.id)
-                        setError('')
-                      }}
-                    >
-                      <span className="name-avatar" aria-hidden>
-                        {p.name.split(' ').pop()!.slice(0, 1).toUpperCase()}
-                      </span>
-                      <b>{p.name}</b>
-                      <span className="name-role">
-                        {isManager(p.role) ? ROLE_LABEL[p.role] : isLocked(p.lockedUntil, now) ? `🔒 đến ${hhmm(p.lockedUntil!)}` : ROLE_LABEL[p.role]}
-                        {pins?.[p.id] && <span className="sample-pin"> · PIN {pins[p.id]}</span>}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </section>
-        <section className="signin-pin" aria-label="Nhập mã PIN">
-          {person ? (
-            <>
-              <div className="signin-who">
-                <button type="button" className="link" onClick={() => setPick(null)}>
-                  ← Chọn tên khác
-                </button>
-                <h2>{person.name}</h2>
-                <span className="muted">{ROLE_LABEL[person.role]}</span>
-              </div>
-              {!person.hasPin ? (
-                <p className="pin-msg is-error">Chưa có mã PIN: nhờ quản lý đặt PIN ở màn Nhân viên.</p>
-              ) : (
-                <PinPad
-                  label={`Mã PIN của ${person.name}`}
-                  onSubmit={submit}
-                  busy={busy}
-                  disabled={locked}
-                  error={error || (locked ? `Nhập sai quá nhiều lần: khoá đến ${hhmm(person.lockedUntil!)}` : '')}
-                  resetKey={`${pick}-${tries}`}
-                />
-              )}
-            </>
-          ) : (
-            <p className="muted signin-hint">Chạm vào tên của bạn rồi nhập mã PIN.</p>
-          )}
-        </section>
+          <AccountField
+            inputRef={userRef}
+            value={username}
+            onChange={v => {
+              setUsername(v)
+              setError('')
+            }}
+          />
+          <PinPad
+            label="Mã PIN"
+            onSubmit={submit}
+            busy={busy}
+            disabled={locked}
+            error={error || (locked ? `Nhập sai quá nhiều lần: khoá đến ${hhmm(lock!.until)}` : '')}
+            resetKey={`${user}-${tries}`}
+          />
+          <p className="muted small center">Quên tài khoản hoặc PIN? Nhờ quản lý xem ở Cài đặt → Nhân viên.</p>
+        </form>
       </main>
+      {samples && samples.length > 0 && (
+        <details className="sample-accounts">
+          <summary>Tài khoản mẫu (chỉ có ở bản mẫu)</summary>
+          <div className="chip-row">
+            {samples.map(a => (
+              <button key={a.username} type="button" className="chip" onClick={() => setUsername(a.username)}>
+                {a.username} <span className="chip-sub">{ROLE_LABEL[a.role]} · PIN {a.pin}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
+  )
+}
+
+/** The account box of the sign-in and approval forms: typed, never picked from a list of names. */
+export function AccountField(props: { value: string; onChange: (v: string) => void; inputRef?: RefObject<HTMLInputElement | null>; label?: string }) {
+  return (
+    <label className="field account-field">
+      <span className="field-label">{props.label ?? 'Tài khoản'}</span>
+      <span className="account-input">
+        <input
+          ref={props.inputRef}
+          value={props.value}
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
+          inputMode="text"
+          maxLength={30}
+          placeholder="Tên đăng nhập"
+          onChange={e => props.onChange(e.target.value)}
+          onKeyDown={e => {
+            // Enter moves on to the PIN pad (digits typed outside the box go to the pad)
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.blur()
+            }
+          }}
+        />
+        {props.value && (
+          <button type="button" className="icon-btn" aria-label="Xoá tài khoản" onClick={() => props.onChange('')}>
+            ✕
+          </button>
+        )}
+      </span>
+    </label>
   )
 }
 

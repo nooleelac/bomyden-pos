@@ -7,16 +7,19 @@ import { newId } from '../menu/repo'
 import { APPROVAL_PERM, DEFAULT_PERMS, PERM_LABEL, PERM_ROLES, cleanPerms, roleCan, type Perm, type PermMatrix } from './permissions'
 import { hoursProblem, isOpenAt } from './branch'
 import { attemptPin, isLocked, pinProblem, type PinState } from './pin'
+import { normalizeUsername, usernameFrom, usernameProblem } from './username'
 import type { AuthRepo, DeviceRow } from './repo'
 import {
   DEFAULT_AUTH_SETTINGS, ROLE_LABEL,
   type ApprovalRequest, type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type DeviceCode, type DeviceKind, type Role,
-  type RosterEntry, type Session, type SignInResult, type StaffRecord,
+  type Session, type SignInResult, type StaffRecord,
 } from './types'
 
 interface StaffRow extends PinState {
   id: string
   name: string
+  /** Tên đăng nhập (0033); stores saved before it get one from the name on load. */
+  username: string
   role: Role
   active: boolean
   salt: string
@@ -64,16 +67,17 @@ interface Approval extends ApprovalRequest {
 
 const VERSION = 1
 const AUDIT_KEEP = 300
+const WRONG_ACCOUNT = 'Sai tài khoản hoặc mã PIN'
 
 /** Sample staff and their PINs (examples only; the shop sets real ones on Nhân viên). */
-export const SAMPLE_STAFF: { id: string; name: string; role: Role; pin: string }[] = [
-  { id: 's-hung', name: 'Hùng', role: 'waiter', pin: '2580' },
-  { id: 's-mai', name: 'Mai', role: 'waiter', pin: '3691' },
-  { id: 's-lan', name: 'Lan', role: 'cashier', pin: '3690' },
-  { id: 's-bep', name: 'Bếp nướng', role: 'kitchen', pin: '4826' },
-  { id: 's-bar', name: 'Quầy bar', role: 'kitchen', pin: '5937' },
-  { id: 's-ha', name: 'Quản lý Hà', role: 'manager', pin: '1397' },
-  { id: 's-owner', name: 'Chủ quán', role: 'owner', pin: '2468' },
+export const SAMPLE_STAFF: { id: string; name: string; username?: string; role: Role; pin: string }[] = [
+  { id: 's-hung', name: 'Hùng', username: 'hung', role: 'waiter', pin: '2580' },
+  { id: 's-mai', name: 'Mai', username: 'mai', role: 'waiter', pin: '3691' },
+  { id: 's-lan', name: 'Lan', username: 'lan', role: 'cashier', pin: '3690' },
+  { id: 's-bep', name: 'Bếp nướng', username: 'bepnuong', role: 'kitchen', pin: '4826' },
+  { id: 's-bar', name: 'Quầy bar', username: 'quaybar', role: 'kitchen', pin: '5937' },
+  { id: 's-ha', name: 'Quản lý Hà', username: 'quanlyha', role: 'manager', pin: '1397' },
+  { id: 's-owner', name: 'Chủ quán', username: 'chuquan', role: 'owner', pin: '2468' },
 ]
 
 export async function sha256Pin(salt: string, pin: string): Promise<string> {
@@ -85,7 +89,6 @@ function fail(msg: string): never {
   throw new Error(msg)
 }
 const randomHex = (n: number) => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, '0')).join('')
-const ROSTER_ORDER: Role[] = ['waiter', 'cashier', 'kitchen', 'manager', 'owner']
 const ADMIN_ORDER: Role[] = ['owner', 'manager', 'cashier', 'waiter', 'kitchen']
 
 export interface MemoryAuthOptions {
@@ -145,7 +148,8 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     const staff: StaffRow[] = []
     for (const s of opts.staff ?? SAMPLE_STAFF) {
       const salt = randomHex(8)
-      staff.push({ id: s.id, name: s.name, role: s.role, active: true, salt, pinHash: await sha256Pin(salt, s.pin), pinSetAt: iso(), failedCount: 0, lockedUntil: null })
+      const username = s.username ?? usernameFrom(s.name, u => staff.some(x => x.username === u))
+      staff.push({ id: s.id, name: s.name, username, role: s.role, active: true, salt, pinHash: await sha256Pin(salt, s.pin), pinSetAt: iso(), failedCount: 0, lockedUntil: null })
     }
     const devices: DeviceRow[] = opts.device === null ? [] : [{ id: 'dev-sample', name: opts.device?.name ?? 'Máy mẫu', kind: opts.device?.kind ?? 'pos', active: true, lastSeenAt: null }]
     return { v: VERSION, staff, devices, codes: [], sessions: [], settings: { ...DEFAULT_AUTH_SETTINGS }, audit: [] }
@@ -183,6 +187,9 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       }
       if (!store) {
         store = await seed()
+        save()
+      } else if (store.staff.some(x => !x.username)) {
+        for (const x of store.staff) x.username ||= usernameFrom(x.name, u => store!.staff.some(y => y.username === u))
         save()
       }
       if (!myDeviceId && store.devices[0] && opts.device !== null) myDeviceId = store.devices[0].id
@@ -253,6 +260,19 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     row.failedCount = 0
     row.lockedUntil = null
   }
+  const byUsername = (s: Store, u: string) => {
+    const n = normalizeUsername(u)
+    return n ? s.staff.find(x => x.active && x.username === n) : undefined
+  }
+  /** A typed account for a person: checked and free, or (empty, new person) made from the name. */
+  const pickUsername = (s: Store, typed: string | undefined, name: string, id: string | null): string | null => {
+    const n = normalizeUsername(typed ?? '')
+    if (!n) return id ? null : usernameFrom(name, u => s.staff.some(x => x.username === u))
+    const bad = usernameProblem(n)
+    if (bad) fail(bad)
+    if (s.staff.some(x => x.username === n && x.id !== id)) fail(`Tên đăng nhập "${n}" đã có người dùng: chọn tên khác`)
+    return n
+  }
   const toSession = (r: SessionRow, st: StaffRow): Session => ({ staffId: st.id, name: st.name, role: st.role, token: r.token, expiresAt: r.expiresAt })
 
   const repo: MemoryAuthRepo = {
@@ -294,19 +314,11 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       audit(s, 'settings', p)
       save()
     },
-    async roster() {
+    async signIn(username, pin): Promise<SignInResult> {
       const s = await db()
       const d = device(s) ?? fail('Máy này chưa được đăng ký hoặc đã bị khoá')
-      return s.staff
-        .filter(x => x.active && (d.kind === 'pos' || can(s, x.role, 'kitchen.work')))
-        .sort((a, b) => ROSTER_ORDER.indexOf(a.role) - ROSTER_ORDER.indexOf(b.role) || a.name.localeCompare(b.name, 'vi'))
-        .map((x): RosterEntry => ({ id: x.id, name: x.name, role: x.role, hasPin: !!x.pinHash, lockedUntil: isLocked(x.lockedUntil, now()) ? x.lockedUntil : null }))
-    },
-    async signIn(staffId, pin): Promise<SignInResult> {
-      const s = await db()
-      const d = device(s) ?? fail('Máy này chưa được đăng ký hoặc đã bị khoá')
-      const row = s.staff.find(x => x.id === staffId && x.active)
-      if (!row) return { ok: false, error: 'Không tìm thấy nhân viên hoặc đã ngừng làm' }
+      const row = byUsername(s, username)
+      if (!row) return { ok: false, error: WRONG_ACCOUNT }
       if (d.kind === 'kitchen' && !can(s, row.role, 'kitchen.work')) return { ok: false, error: 'Máy bếp chỉ đăng nhập người có quyền Màn hình bếp' }
       const r = await checkPin(s, row, pin, 'sign_in')
       if (!r.ok) return r
@@ -348,12 +360,14 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       }
       keepToken(null, false)
     },
-    async verifyManagerPin(managerId, pin, req): Promise<ApprovalResult> {
+    async verifyManagerPin(username, pin, req): Promise<ApprovalResult> {
       const s = await db()
       const asker = me(s) ?? fail('Đăng nhập trước khi xin quản lý duyệt')
       if (req.action === 'discount' && !(typeof req.amount === 'number' && req.amount > 0)) fail('Ghi số tiền giảm cần duyệt')
       if (req.action === 'void_item' && !req.lineId) fail('Chọn món cần duyệt')
-      const m = s.staff.find(x => x.id === managerId && x.active && can(s, x.role, APPROVAL_PERM[req.action]))
+      const who = byUsername(s, username)
+      if (!who) return { ok: false, error: WRONG_ACCOUNT }
+      const m = can(s, who.role, APPROVAL_PERM[req.action]) ? who : null
       if (!m) return { ok: false, error: 'Người này chưa có quyền duyệt việc này' }
       const r = await checkPin(s, m, pin, `approve_${req.action}`)
       if (!r.ok) return r
@@ -393,7 +407,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
           const live = s.sessions.filter(r => r.staffId === x.id && !r.endedAt && (!r.expiresAt || new Date(r.expiresAt) > t))
           const seen = s.sessions.filter(r => r.staffId === x.id).map(r => r.lastSeenAt).sort().pop() ?? null
           return {
-            id: x.id, name: x.name, role: x.role, active: x.active, hasPin: !!x.pinHash, pinSetAt: x.pinSetAt,
+            id: x.id, name: x.name, username: x.username, role: x.role, active: x.active, hasPin: !!x.pinHash, pinSetAt: x.pinSetAt,
             lockedUntil: isLocked(x.lockedUntil, t) ? x.lockedUntil : null,
             signedInOn: live.length ? (s.devices.find(d => d.id === live[live.length - 1].deviceId)?.name ?? '') : null, lastSeenAt: seen,
           }
@@ -409,22 +423,25 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       if (!inp.id) {
         if (!mayManage(s, inp.role, null)) fail('Chỉ chủ quán được thêm quản lý hoặc chủ quán')
         if (!inp.pin) fail('Đặt mã PIN cho nhân viên mới')
-        const row: StaffRow = { id: newId(), name, role: inp.role, active: true, salt: '', pinHash: null, pinSetAt: null, failedCount: 0, lockedUntil: null }
+        const username = pickUsername(s, inp.username, name, null)!
+        const row: StaffRow = { id: newId(), name, username, role: inp.role, active: true, salt: '', pinHash: null, pinSetAt: null, failedCount: 0, lockedUntil: null }
         await setPin(row, inp.pin)
         s.staff.push(row)
-        audit(s, 'staff_add', { name, role: inp.role })
+        audit(s, 'staff_add', { name, role: inp.role, username })
         save()
         return row.id
       }
       const row = s.staff.find(x => x.id === inp.id) ?? fail('Không tìm thấy nhân viên')
       if (!mayManage(s, row.role, row.id) || (inp.role !== row.role && !mayManage(s, inp.role, null))) fail('Chỉ chủ quán được sửa quản lý hoặc chủ quán')
       if (row.id === m.id && inp.role !== row.role) fail('Không tự đổi vai trò của mình')
+      const username = pickUsername(s, inp.username, name, row.id) ?? row.username
       if (inp.pin) await setPin(row, inp.pin)
-      const was = { name: row.name, role: row.role }
+      const was = { name: row.name, role: row.role, username: row.username }
       row.name = name
       row.role = inp.role
+      row.username = username
       if (inp.pin) endSessions(s, row.id, myToken)
-      audit(s, 'staff_edit', { name, role: inp.role, was, pin_reset: !!inp.pin })
+      audit(s, 'staff_edit', { name, role: inp.role, username, was, pin_reset: !!inp.pin })
       save()
       return row.id
     },
@@ -584,8 +601,12 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       listeners.add(fn)
       return () => listeners.delete(fn)
     },
-    samplePins() {
-      return Object.fromEntries((opts.staff ?? SAMPLE_STAFF).map(x => [x.id, x.pin]))
+    sampleAccounts() {
+      // the sample PINs with the accounts as they are now (a manager may have renamed one)
+      return (opts.staff ?? SAMPLE_STAFF).flatMap(x => {
+        const row = store?.staff.find(r => r.id === x.id && r.active)
+        return row ? [{ username: row.username, name: row.name, role: row.role, pin: x.pin }] : []
+      })
     },
   }
   return repo

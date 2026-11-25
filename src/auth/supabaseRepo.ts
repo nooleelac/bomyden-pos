@@ -8,9 +8,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeMatrix, PERM_ROLES } from './permissions'
 import type { AuthRepo, DeviceRow } from './repo'
 import { staffToken } from './token'
+import { normalizeUsername } from './username'
 import {
   DEFAULT_AUTH_SETTINGS,
-  type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type Device, type OpeningHours, type Role, type RosterEntry, type Session, type SignInResult, type StaffRecord,
+  type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type Device, type OpeningHours, type Role, type Session, type SignInResult, type StaffRecord,
 } from './types'
 import { liveTables } from '../lib/live'
 
@@ -98,13 +99,8 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
       const { error } = await db.from('shop_settings').update(row).eq('id', 1)
       if (error) throw new Error(error.message)
     },
-    async roster() {
-      return (await rpc<Row[]>(db, 'signin_roster')).map((r): RosterEntry => ({
-        id: s(r.id), name: s(r.name), role: r.role as Role, hasPin: r.has_pin === true, lockedUntil: sn(r.locked_until),
-      }))
-    },
-    async signIn(staffId, pin): Promise<SignInResult> {
-      const r = await rpc<Row>(db, 'staff_sign_in', { p_staff: staffId, p_pin: pin })
+    async signIn(username, pin): Promise<SignInResult> {
+      const r = await rpc<Row>(db, 'staff_sign_in_user', { p_username: normalizeUsername(username), p_pin: pin })
       if (r.ok !== true) return pinFail(r)
       const st = r.staff as Row
       const sess: Session = { staffId: s(st.id), name: s(st.name), role: st.role as Role, token: s(r.token), expiresAt: sn(r.expires_at) }
@@ -135,21 +131,21 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
         keep(null)
       }
     },
-    async verifyManagerPin(managerId, pin, req): Promise<ApprovalResult> {
+    async verifyManagerPin(username, pin, req): Promise<ApprovalResult> {
       const detail = req.action === 'discount' ? { amount: req.amount } : req.action === 'void_item' ? { line: req.lineId } : {}
-      const r = await rpc<Row>(db, 'verify_manager_pin', { p_manager: managerId, p_pin: pin, p_action: req.action, p_order: req.orderId, p_detail: detail })
+      const r = await rpc<Row>(db, 'verify_manager_by_username', { p_username: normalizeUsername(username), p_pin: pin, p_action: req.action, p_order: req.orderId, p_detail: detail })
       if (r.ok !== true) return pinFail(r)
       const m = r.manager as Row
       return { ok: true, token: s(r.token), managerId: s(m.id), managerName: s(m.name), expiresAt: s(r.expires_at) }
     },
     async listStaff() {
       return (await rpc<Row[]>(db, 'staff_admin_list')).map((r): StaffRecord => ({
-        id: s(r.id), name: s(r.name), role: r.role as Role, active: r.active === true, hasPin: r.has_pin === true, pinSetAt: sn(r.pin_set_at),
+        id: s(r.id), name: s(r.name), username: s(r.username), role: r.role as Role, active: r.active === true, hasPin: r.has_pin === true, pinSetAt: sn(r.pin_set_at),
         lockedUntil: sn(r.locked_until), signedInOn: sn(r.signed_in_on), lastSeenAt: sn(r.last_seen_at),
       }))
     },
     async saveStaff(inp) {
-      const r = await rpc<Row>(db, 'staff_save', { p_id: inp.id ?? null, p_name: inp.name, p_role: inp.role, p_pin: inp.pin || null })
+      const r = await rpc<Row>(db, 'staff_save', { p_id: inp.id ?? null, p_name: inp.name, p_role: inp.role, p_pin: inp.pin || null, p_username: inp.username?.trim() || null })
       return s(r.id)
     },
     resetPin: async (id, pin) => void (await rpc(db, 'staff_reset_pin', { p_staff: id, p_pin: pin })),

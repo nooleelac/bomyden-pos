@@ -14,8 +14,9 @@ import { isManager, staffTabsFor } from './guards'
 import { roleCan } from './permissions'
 import { PermissionsScreen } from './PermissionsScreen'
 import { pinProblem } from './pin'
+import { normalizeUsername, usernameFrom, usernameProblem } from './username'
 import type { DeviceRow } from './repo'
-import { ROLE_LABEL, ROLES, type AuditEntry, type AuthSettings, type Branch, type DeviceCode, type DeviceKind, type Role, type StaffRecord } from './types'
+import { ROLE_LABEL, ROLES, type AuditEntry, type AuthSettings, type Branch, type DeviceCode, type DeviceKind, type Role, type StaffInput, type StaffRecord } from './types'
 
 const TABS = [
   { id: '', label: 'Nhân viên' },
@@ -124,7 +125,7 @@ function StaffList(props: Notify) {
           + Thêm nhân viên
         </button>
       </div>
-      <p className="muted small">Mỗi người một mã PIN 4–6 số để đăng nhập trên máy chung. Máy chủ chỉ lưu PIN đã mã hoá; quên PIN thì đặt lại.</p>
+      <p className="muted small">Mỗi người đăng nhập trên máy chung bằng tên đăng nhập của mình và mã PIN 4–6 số; máy không hiện danh sách tên. Máy chủ chỉ lưu PIN đã mã hoá; quên PIN thì đặt lại.</p>
       {!list && <p className="muted">Đang tải…</p>}
       <ul className="staff-list">
         {shown.map(r => (
@@ -132,6 +133,7 @@ function StaffList(props: Notify) {
             <div className="staff-main-col">
               <div className="staff-name">
                 <b>{r.name}</b>
+                <span className="staff-username" title="Tên đăng nhập">@{r.username}</span>
                 <span className={`badge role-${r.role}`}>{ROLE_LABEL[r.role]}</span>
                 {!r.active && <span className="badge badge-archived">Ngừng làm</span>}
                 {r.lockedUntil && <span className="badge badge-req">🔒 Khoá PIN đến {when(r.lockedUntil).slice(0, 5)}</span>}
@@ -220,9 +222,10 @@ function pinError(pin: string, again: string): string | null {
   return pinProblem(pin) ?? (pin !== again ? 'Hai lần nhập PIN không giống nhau' : null)
 }
 
-function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boolean; onClose: () => void; onSave: (inp: { id?: string; name: string; role: Role; pin?: string }) => Promise<void> }) {
+function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boolean; onClose: () => void; onSave: (inp: StaffInput) => Promise<void> }) {
   const v = props.value
   const [name, setName] = useState(v?.name ?? '')
+  const [username, setUsername] = useState(v?.username ?? '')
   const [role, setRole] = useState<Role>(v?.role ?? 'waiter')
   const [pin, setPin] = useState('')
   const [again, setAgain] = useState('')
@@ -231,6 +234,8 @@ function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boo
   const roles = v && !props.roles.includes(v.role) ? [v.role, ...props.roles] : props.roles
   const save = async () => {
     if (!name.trim()) return setErr('Nhập tên nhân viên')
+    const user = normalizeUsername(username)
+    if ((v || user) && usernameProblem(user)) return setErr(usernameProblem(user)!)
     if (!v || pin) {
       const e = pinError(pin, again)
       if (e) return setErr(e)
@@ -238,7 +243,7 @@ function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boo
     setBusy(true)
     setErr('')
     try {
-      await props.onSave({ id: v?.id, name, role, pin: pin || undefined })
+      await props.onSave({ id: v?.id, name, role, username: user || undefined, pin: pin || undefined })
     } catch (e) {
       setErr(errText(e))
     } finally {
@@ -248,7 +253,7 @@ function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boo
   return (
     <Sheet
       title={v ? `Sửa ${v.name}` : 'Thêm nhân viên'}
-      subtitle={v ? 'Đổi tên, vai trò; để trống PIN nếu không đổi' : 'Tên hiện trên màn đăng nhập của mọi máy'}
+      subtitle={v ? 'Đổi tên, tên đăng nhập, vai trò; để trống PIN nếu không đổi' : 'Người này đăng nhập bằng tên đăng nhập và mã PIN'}
       onClose={props.onClose}
       foot={
         <button type="button" className="btn btn-primary btn-grow" disabled={busy} onClick={save}>
@@ -260,6 +265,20 @@ function StaffSheet(props: { value: StaffRecord | null; roles: Role[]; self: boo
       <label className="field">
         <span className="field-label">Tên</span>
         <input maxLength={40} value={name} onChange={e => setName(e.target.value)} placeholder="VD: Hùng" />
+      </label>
+      <label className="field">
+        <span className="field-label">Tên đăng nhập</span>
+        <input
+          maxLength={20}
+          value={username}
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={e => setUsername(normalizeUsername(e.target.value).replace(/[^a-z0-9._]/g, ''))}
+          placeholder={v ? '' : `Để trống: tự đặt theo tên (VD: ${usernameFrom(name || 'Hùng', () => false)})`}
+        />
+        <span className="muted small">Chữ không dấu, số, dấu chấm hoặc gạch dưới; không trùng người khác.</span>
       </label>
       <fieldset className="pick-group">
         <legend>Vai trò</legend>
@@ -478,7 +497,7 @@ function Settings(props: Notify) {
 }
 
 const ACTION_LABEL: Record<string, string> = {
-  sign_in: 'Đăng nhập', sign_out: 'Đăng xuất', pin_failed: 'Nhập sai PIN', pin_locked: 'Khoá PIN', approval: 'Quản lý duyệt',
+  sign_in: 'Đăng nhập', sign_in_unknown: 'Đăng nhập sai tài khoản', sign_out: 'Đăng xuất', pin_failed: 'Nhập sai PIN', pin_locked: 'Khoá PIN', approval: 'Quản lý duyệt',
   discount: 'Giảm giá', void_item: 'Huỷ món', void_order: 'Huỷ đơn', staff_add: 'Thêm nhân viên', staff_edit: 'Sửa nhân viên',
   staff_off: 'Ngừng làm', staff_on: 'Làm lại', pin_reset: 'Đặt lại PIN', device_code: 'Tạo mã máy', device_registered: 'Đăng ký máy',
   device_on: 'Mở lại máy', device_off: 'Khoá máy', settings: 'Đổi cài đặt', open_shift: 'Mở ca', close_shift: 'Chốt ca', reprint: 'In lại hoá đơn',

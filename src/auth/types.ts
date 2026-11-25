@@ -66,7 +66,7 @@ export interface BranchInput {
   copyFrom?: string | null
 }
 
-/** A name on the sign-in screen. */
+/** A person as the staff screen lists them (since 0033 the sign-in screen lists nobody). */
 export interface RosterEntry {
   id: string
   name: string
@@ -78,6 +78,8 @@ export interface RosterEntry {
 
 /** A row on the staff screen (managers). */
 export interface StaffRecord extends RosterEntry {
+  /** Tên đăng nhập (0033): typed with the PIN to sign in. */
+  username: string
   active: boolean
   pinSetAt: string | null
   /** Device name where this person is signed in now. */
@@ -151,6 +153,8 @@ export interface StaffInput {
   id?: string
   name: string
   role: Role
+  /** Tên đăng nhập; left empty on a new person: made from the name. */
+  username?: string
   /** Required for a new person; on edit it replaces the PIN. */
   pin?: string
 }
