@@ -3,6 +3,7 @@
 //   #/hoa-don/<billId> one bill: dishes, discount, VAT, payments, prints (reprint stays on Thu ngân)
 //   #/doanh-thu        revenue of a date range against the range before: per day, per hour, per payment method,
 //                      dishes, cashiers, CSV
+//   #/kiem-soat        kiểm soát thất thoát: huỷ món, giảm giá, in lại, két lệch, xoá from the audit log (ControlPage)
 // Bills come from FloorRepo.billHistory (the floor state only keeps the last hours).
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -37,6 +38,7 @@ import {
   type Preset,
   type Revenue,
 } from './report'
+import { ControlPage } from './ControlPage'
 
 const METHODS: PayMethod[] = ['cash', 'bank', 'card']
 const METHOD_SHORT: Record<PayMethod, string> = { cash: 'TM', bank: 'CK', card: 'Thẻ' }
@@ -54,11 +56,14 @@ export function ReportsApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
   const route = useRoute()
   const dayStart = floor?.settings.businessDayStart ?? '06:00'
   const now = useNow(60_000, floor?.clockOffset ?? 0)
+  const { session } = useAuth()
   const [range, setRange] = useState<Range | null>(null)
   const r = range ?? { preset: 'today' as const, ...presetDays('today', now, dayStart) }
 
   if (!floor) return <div className="menu-app loading">Đang tải…</div>
-  const page = route[0] === 'doanh-thu' ? 'revenue' : route[1] ? 'bill' : 'bills'
+  const page = route[0] === 'doanh-thu' ? 'revenue' : route[0] === 'kiem-soat' ? 'control' : route[1] ? 'bill' : 'bills'
+  const canControl = canOpen(session.role, ['kiem-soat'])
+  const canRevenue = canOpen(session.role, ['doanh-thu'])
   return (
     <div className="menu-app floor-app reports-app">
       <TopBar />
@@ -69,9 +74,16 @@ export function ReportsApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
             <a href="#/hoa-don" role="tab" aria-selected={page === 'bills'} className={page === 'bills' ? 'is-on' : ''}>
               🧾 Hoá đơn
             </a>
-            <a href="#/doanh-thu" role="tab" aria-selected={page === 'revenue'} className={page === 'revenue' ? 'is-on' : ''}>
-              📈 Doanh thu
-            </a>
+            {canRevenue && (
+              <a href="#/doanh-thu" role="tab" aria-selected={page === 'revenue'} className={page === 'revenue' ? 'is-on' : ''}>
+                📈 Doanh thu
+              </a>
+            )}
+            {canControl && (
+              <a href="#/kiem-soat" role="tab" aria-selected={page === 'control'} className={page === 'control' ? 'is-on' : ''}>
+                🛡️ Kiểm soát
+              </a>
+            )}
           </div>
         )}
         {page !== 'bill' && <RangePicker range={r} now={now} dayStart={dayStart} onChange={setRange} />}
@@ -79,6 +91,7 @@ export function ReportsApp(props: { floorRepo: FloorRepo; menuRepo: MenuRepo }) 
         {page === 'bills' && <BillsPage repo={floorRepo} floor={floor} range={r} dayStart={dayStart} onError={setError} />}
         {page === 'bill' && <BillDetail repo={floorRepo} floor={floor} billId={route[1]} range={r} dayStart={dayStart} onError={setError} />}
         {page === 'revenue' && <RevenuePage repo={floorRepo} floor={floor} range={r} dayStart={dayStart} onError={setError} />}
+        {page === 'control' && <ControlPage fromDay={r.fromDay} toDay={r.toDay} dayStart={dayStart} />}
       </main>
     </div>
   )

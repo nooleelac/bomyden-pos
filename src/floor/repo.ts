@@ -9,7 +9,7 @@ import type { Menu } from '../menu/types'
 import { newId } from '../menu/repo'
 import * as E from './engine'
 import { seedFloor } from './seed'
-import type { Actor, Area, BillHistory, CallChips, GuestGeoSettings, FloorState, LineStatus, PaymentSettings, ReceiptSettings, SendLineInput, Table } from './types'
+import type { Actor, Area, BankFeedStatus, BillHistory, CallChips, GuestGeoSettings, FloorState, LineStatus, PaymentSettings, ReceiptSettings, SendLineInput, Table } from './types'
 
 export interface FloorRepo {
   readonly source: 'sample' | 'supabase'
@@ -92,6 +92,12 @@ export interface FloorRepo {
   setOnlineSettings(p: { on: boolean; ship: ShipRules }): Promise<void>
   /** Sample only: the web page of another tab (the database takes these through the online_* RPCs of 0027). */
   placeOnline?(inp: E.OnlinePlaceInput): Promise<void>
+  /** Tự xác nhận chuyển khoản (owner): on / off, the webhook token, when Pay2S last called (0030). */
+  bankFeedStatus(): Promise<BankFeedStatus>
+  /** Turn the feed on or off; `token` (from Pay2S → Webhook) replaces the stored one (0031). */
+  setupBankFeed(on: boolean, token?: string): Promise<BankFeedStatus>
+  /** Sample only: money in as if Pay2S reported it. */
+  simulateTransfer?(inp: { amount: number; content: string; remitter?: string }): Promise<void>
   agreeOnline?(id: string, fee: number): Promise<void>
   cancelOnline?(id: string): Promise<void>
   /** Sample only: back to the sample evening. */
@@ -115,6 +121,14 @@ export interface MemoryFloorOptions {
 
 // 2: lines carry VAT flags, bills and shifts (0005); 3: settings.voidApproval, owner role (0006); 4: side parts (0012)
 const STORAGE_VERSION = 4
+
+/** The sample has no Pay2S: a made-up token, the last sample transfer as the last call. */
+let sampleToken = ''
+
+function sampleFeed(s: FloorState): BankFeedStatus {
+  const list = s.transfers ?? []
+  return { on: !!s.bankFeed, token: sampleToken, lastAt: list[list.length - 1]?.receivedAt ?? null, countToday: list.length }
+}
 
 export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
   const now = opts.now ?? (() => new Date())
@@ -262,6 +276,21 @@ export function createMemoryFloorRepo(opts: MemoryFloorOptions): FloorRepo {
     rejectOnline: (id, reason) => run((s, c) => E.rejectOnlineOrder(s, id, reason, c)),
     setOnlineSettings: p => run((s, c) => E.setOnlineSettings(s, p, c)),
     placeOnline: inp => run((s, c) => E.placeOnlineOrder(s, inp, c.menu, c.now)),
+    async bankFeedStatus() {
+      const c = await ctx()
+      if (c.actor.role !== 'owner') throw new Error('Chỉ chủ quán làm được việc này')
+      return sampleFeed(state)
+    },
+    async setupBankFeed(on, token) {
+      if (token !== undefined) {
+        if (token.trim().length < 16 || /\s/.test(token.trim())) throw new Error('Token Pay2S không hợp lệ: chép lại đủ cả chuỗi')
+        sampleToken = token.trim()
+      }
+      if (on && !sampleToken) throw new Error('Dán token webhook của Pay2S trước khi bật')
+      await run((s, c) => E.setBankFeed(s, on, c))
+      return sampleFeed(state)
+    },
+    simulateTransfer: inp => run((s, c) => E.receiveTransfer(s, inp, c)),
     agreeOnline: (id, fee) => run(s => E.agreeOnlineOrder(s, id, fee)),
     cancelOnline: id => run((s, c) => E.cancelOnlineOrder(s, id, c.now)),
     placeGuestOrder: (token, inp) => run((s, c) => E.placeGuestOrder(s, token, inp, c.menu, c.now)),

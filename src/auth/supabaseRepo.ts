@@ -159,9 +159,13 @@ export function createSupabaseAuthRepo(db: SupabaseClient): AuthRepo {
     },
     setDeviceActive: async (id, active) => void (await rpc(db, 'device_set_active', { p_device: id, p_active: active })),
     adminDelete: async (kind, id) => void (await rpc(db, 'admin_delete', { p_kind: kind, p_id: id })),
-    async audit(limit = 100) {
+    async audit(limit = 100, opts = {}) {
+      let q = db.from('audit_log').select('id, at, action, staff_id, approved_by, device_id, detail')
+      if (opts.from) q = q.gte('at', opts.from)
+      if (opts.to) q = q.lt('at', opts.to)
+      if (opts.actions?.length) q = q.in('action', opts.actions)
       const [log, staff, devices] = await Promise.all([
-        rows(db.from('audit_log').select('id, at, action, staff_id, approved_by, device_id, detail').order('at', { ascending: false }).limit(limit)),
+        rows(q.order('at', { ascending: false }).limit(limit)),
         rows(db.from('staff').select('id, name')),
         rows(db.from('devices').select('id, name')),
       ])

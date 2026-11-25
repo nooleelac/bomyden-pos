@@ -243,6 +243,38 @@ export interface FloorState {
   guestRequests?: GuestRequest[]
   /** Đơn giao hàng từ web: the open ones and those finished in the last hours (0027); missing = none. */
   onlineOrders?: OnlineOrder[]
+  /** Tự xác nhận chuyển khoản (Pay2S, 0030) is on: the bank tells the cashier when money arrives. */
+  bankFeed?: boolean
+  /** Money in on the shop accounts in the last 24 hours not yet tied to a payment (0030); missing = none. */
+  transfers?: BankTxn[]
+}
+
+/** Cài đặt → Thanh toán → Tự xác nhận chuyển khoản (owner): what bank_feed_status returns. */
+export interface BankFeedStatus {
+  on: boolean
+  /** Paste into Pay2S → Webhook as the Bearer token. */
+  token: string
+  /** Last time Pay2S called (null: never). */
+  lastAt: string | null
+  /** Transfers received in the last 24 hours. */
+  countToday: number
+}
+
+/** One incoming transfer the bank reported (Pay2S webhook, bank_txns). */
+export interface BankTxn {
+  /** "p2s:<Pay2S id>": goes on the payment as its ref. */
+  id: string
+  amount: number
+  /** Memo as the bank wrote it. */
+  content: string
+  /** 6 letters of the order (orderCode) found after BMD in the memo, else null. */
+  code: string | null
+  remitter: string
+  /** Bank name (ACB, VCB…) and the shop account it went to. */
+  gateway: string
+  account: string
+  /** When it reached us. */
+  receivedAt: string
 }
 
 export type OnlineStatus = 'pending' | 'quoted' | 'agreed' | 'accepted' | 'rejected' | 'cancelled'

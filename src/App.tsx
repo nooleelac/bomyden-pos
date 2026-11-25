@@ -15,6 +15,7 @@ import { createMemoryFloorRepo, type FloorRepo } from './floor/repo'
 import { sampleBillHistory, sampleEvening } from './floor/seed'
 import type { BillHistory } from './floor/types'
 import { setPushClient } from './push/push'
+import { setVoiceClient } from './voice/voiceApi'
 import { setPrintClient } from './cashier/printers/network'
 import { createMemoryMenuRepo, type MenuRepo } from './menu/repo'
 import { seedMenu } from './menu/seed'
@@ -55,6 +56,7 @@ async function connect(): Promise<Repos> {
     // the device is the Supabase user; the person signed in with a PIN rides on every request (x-staff-session)
     db = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY, { global: { fetch: staffFetch } })
     setPushClient(db)
+    setVoiceClient(db)
     setPrintClient(db, env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY)
   }
   const sampleAuth = authFromDb ? null : createMemoryAuthRepo({ sync: { storageKey: 'bmd-auth-v1', sessionKey: 'bmd-auth-session', channel: 'bmd-auth' } })
@@ -140,7 +142,7 @@ function Screens(props: { repos: Repos }) {
   if (top === 'bep') return <KitchenApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === 'nhan-vien') return <StaffApp />
   if (top === 'cai-dat') return <SettingsApp />
-  if (top === 'hoa-don' || top === 'doanh-thu') return <ReportsApp floorRepo={repos.floor} menuRepo={repos.menu} />
+  if (top === 'hoa-don' || top === 'doanh-thu' || top === 'kiem-soat') return <ReportsApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === 'thu-ngan' || top === 'ca') return <CashierApp floorRepo={repos.floor} menuRepo={repos.menu} />
   if (top === '' || top === 'ban' || top === 'don') return <FloorApp floorRepo={repos.floor} menuRepo={repos.menu} />
   return <MenuApp repo={repos.menu} role={me.role} />

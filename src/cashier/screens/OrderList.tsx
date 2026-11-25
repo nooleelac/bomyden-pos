@@ -1,6 +1,8 @@
 // #/thu-ngan: orders waiting to be settled (Chờ thanh toán first), the open shift, and bills paid recently
 // (tap to reprint).
 
+import { useAuth } from '../../auth/context'
+import { roleCan } from '../../auth/permissions'
 import { formatVnd } from '../../lib/billing'
 import { DEFAULT_REGISTER, quoteBill } from '../../floor/engine'
 import { clock, formatDuration, isOpen, orderTitle } from '../../floor/logic'
@@ -8,7 +10,7 @@ import type { FloorState } from '../../floor/types'
 import { billSummary } from '../bill'
 import { openShiftOf, shiftSummary } from '../shift'
 
-export function OrderList(props: { floor: FloorState; now: Date }) {
+export function OrderList(props: { floor: FloorState; now: Date; announce?: boolean }) {
   const { floor, now } = props
   const shift = openShiftOf(floor.shifts, DEFAULT_REGISTER)
   const open = floor.orders
@@ -17,6 +19,7 @@ export function OrderList(props: { floor: FloorState; now: Date }) {
     .sort((a, b) => Number(!!b.o.payingAt) - Number(!!a.o.payingAt) || Number(!!b.o.billRequestedAt) - Number(!!a.o.billRequestedAt) || a.o.openedAt.localeCompare(b.o.openedAt))
   const bills = [...floor.bills].sort((a, b) => b.paidAt.localeCompare(a.paidAt)).slice(0, 30)
   const sum = shift ? shiftSummary(shift, floor.bills) : null
+  const blind = !roleCan(useAuth().session.role, 'audit.view') // đếm két kín: the cashier does not see the expected cash
 
   return (
     <main className="cashier-main">
@@ -27,7 +30,13 @@ export function OrderList(props: { floor: FloorState; now: Date }) {
               <b>Ca đang mở</b> · {shift.register} · {shift.openedBy} từ {clock(shift.openedAt)}
             </span>
             <span>
-              {sum.bills} hoá đơn · {formatVnd(sum.sales)} · tiền mặt trong két dự kiến <b>{formatVnd(sum.expectedCash)}</b>
+              {blind ? (
+                <>{sum.bills} hoá đơn</>
+              ) : (
+                <>
+                  {sum.bills} hoá đơn · {formatVnd(sum.sales)} · tiền mặt trong két dự kiến <b>{formatVnd(sum.expectedCash)}</b>
+                </>
+              )}
             </span>
             <a className="btn btn-small" href="#/ca">
               Chốt ca
@@ -44,6 +53,12 @@ export function OrderList(props: { floor: FloorState; now: Date }) {
           </>
         )}
       </section>
+
+      {floor.bankFeed && (
+        <a className="announce-line" href="#/cai-dat/thong-bao">
+          {props.announce ? '🔊 Đang đọc to tiền về' : '🔇 Đang tắt đọc to tiền về'} · <span className="link">Cài đặt thông báo</span>
+        </a>
+      )}
 
       <div className="cashier-cols">
         <section className="card">

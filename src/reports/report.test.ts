@@ -64,12 +64,13 @@ describe('revenue', () => {
 
 describe('Quản lý in the menu', () => {
   it('owner and manager see both; cashier sees bills only; waiter and kitchen see none', () => {
-    expect(manageFor('owner').map(i => i.href)).toEqual(['#/hoa-don', '#/doanh-thu'])
-    expect(manageFor('manager').map(i => i.href)).toEqual(['#/hoa-don', '#/doanh-thu'])
+    expect(manageFor('owner').map(i => i.href)).toEqual(['#/hoa-don', '#/doanh-thu', '#/kiem-soat'])
+    expect(manageFor('manager').map(i => i.href)).toEqual(['#/hoa-don', '#/doanh-thu', '#/kiem-soat'])
     expect(manageFor('cashier').map(i => i.href)).toEqual(['#/hoa-don'])
     expect(manageFor('waiter')).toEqual([])
     expect(manageFor('kitchen')).toEqual([])
     expect(canOpen('cashier', ['doanh-thu'])).toBe(false)
+    expect(canOpen('cashier', ['kiem-soat'])).toBe(false)
   })
 })
 

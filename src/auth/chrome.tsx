@@ -12,7 +12,7 @@ import { clock } from '../floor/logic'
 import { EVENT_ICON, floorEvents, type FloorEvent } from '../floor/notify'
 import type { FloorRepo } from '../floor/repo'
 import type { FloorState } from '../floor/types'
-import { disablePush, enablePush, pushState, testPush, type PushState } from '../push/push'
+import { pushState, type PushState } from '../push/push'
 
 /** Top bar + bottom tab bar + drawer. */
 export function TopBar() {
@@ -110,7 +110,7 @@ function Bell(props: { repo: FloorRepo }) {
           <div className="bell-backdrop" onClick={() => setOpen(false)} />
           <section className="bell-panel" aria-label="Thông báo">
             <h2>Thông báo</h2>
-            <PushToggle />
+            <PushLink onOpen={() => setOpen(false)} />
             {events.length === 0 && <p className="muted small">Chưa có thông báo trong 12 giờ qua.</p>}
             <ul>
               {events.map(e => (
@@ -137,55 +137,26 @@ function Bell(props: { repo: FloorRepo }) {
   )
 }
 
-const PUSH_NOTE: Record<PushState, string> = {
-  unsupported: '',
-  'need-install': 'iPhone/iPad: bấm Chia sẻ → Thêm vào Màn hình chính, mở app từ biểu tượng đó rồi bật thông báo.',
-  denied: 'Trình duyệt đang chặn thông báo: mở cài đặt trang web (biểu tượng ổ khoá) → Thông báo → Cho phép.',
-  off: 'Nhận thông báo mọi hoạt động trên máy này, kể cả khi đã tắt app hoặc khoá màn hình.',
-  on: 'Máy này đang nhận thông báo mọi hoạt động.',
+const PUSH_SHORT: Record<PushState, string> = {
+  unsupported: 'Cài đặt thông báo, đọc to tiền về',
+  'need-install': 'Máy này chưa nhận thông báo: cần thêm app ra màn hình chính',
+  denied: 'Trình duyệt đang chặn thông báo của app',
+  off: 'Máy này chưa bật thông báo khi tắt màn hình',
+  on: 'Máy này đang nhận thông báo',
 }
 
-/** Turns Web Push on / off for this device (top of the bell panel; hidden in sample mode). */
-function PushToggle() {
+/** One line at the top of the bell panel: this device's push state, opening Cài đặt → Thông báo where it is changed. */
+function PushLink(props: { onOpen: () => void }) {
   const [state, setState] = useState<PushState | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   useEffect(() => {
     pushState().then(setState, () => setState('unsupported'))
   }, [])
-  if (!state || state === 'unsupported') return null
-  const run = (f: () => Promise<PushState | void>) => async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const s = await f()
-      if (s) setState(s)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
+  if (!state) return null
   return (
-    <div className={'push-toggle' + (state === 'on' ? ' is-on' : '')}>
-      <p className="small">{PUSH_NOTE[state]}</p>
-      {state === 'off' && (
-        <button type="button" className="push-btn" disabled={busy} onClick={run(enablePush)}>
-          {busy ? 'Đang bật…' : '🔔 Bật thông báo trên máy này'}
-        </button>
-      )}
-      {state === 'on' && (
-        <span className="push-actions">
-          <button type="button" className="push-link" disabled={busy} onClick={run(testPush)}>
-            Gửi thử
-          </button>
-          <button type="button" className="push-link" disabled={busy} onClick={run(disablePush)}>
-            Tắt
-          </button>
-        </span>
-      )}
-      {error && <p className="small push-error">{error}</p>}
-    </div>
+    <a className={'push-toggle push-line' + (state === 'on' ? ' is-on' : '')} href="#/cai-dat/thong-bao" onClick={props.onOpen}>
+      <span className="small">{PUSH_SHORT[state]}</span>
+      <span className="small link">Cài đặt ›</span>
+    </a>
   )
 }
 

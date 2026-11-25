@@ -61,7 +61,7 @@
 .toast-ok { background: var(--ok); }
 
 /* floor map (Sapo-style: areas in a rail on the left, big table numbers) */
-.floor { padding: 0 0 8px; max-width: 1200px; margin: 0 auto; }
+.floor { padding: 0 0 8px; width: 100%; max-width: none; margin: 0; }
 .floor-counts {
   display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 12px 16px; font-size: 15px;
   color: var(--slate); background: var(--surface); border-bottom: 1px solid var(--line);
@@ -123,7 +123,7 @@
 .late-text { color: var(--danger); font-weight: 700; }
 
 /* order screen */
-.order-view main { padding: 0 10px 24px; max-width: 1200px; }
+.order-view main { padding: 0 10px 24px; max-width: none; }
 .order-head { padding: 8px 16px 4px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .order-head .link { padding: 2px 0; }
 .order-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -183,6 +183,8 @@
 /* #/don: wide order cards (Sapo style) */
 .order-cards { list-style: none; margin: 0; padding: 0 0 80px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 @media (min-width: 900px) { .order-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1400px) { .order-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1800px) { .order-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .order-card { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); color: var(--text); text-decoration: none; overflow: hidden; border-top: 3px solid var(--st-occupied); }
 .order-card.st-bill { border-top-color: var(--st-bill); }
 .order-card.st-paying { border-top-color: var(--st-paying); }
@@ -223,6 +225,8 @@
 .push-btn { margin-top: 8px; width: 100%; min-height: 44px; border: 0; border-radius: 10px; background: var(--accent, #0a84ff); color: #fff; font-weight: 700; font-size: 15px; }
 .push-actions { display: flex; gap: 4px; flex: none; }
 .push-link { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px; }
+.push-line { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--text); text-decoration: none; }
+.push-line .link { color: var(--accent, #0a84ff); flex: none; }
 .bell-panel .push-error { color: #c62828; margin-top: 6px; }
 .bell-icon { flex: none; font-size: 18px; }
 .bell-text { flex: 1; min-width: 0; }

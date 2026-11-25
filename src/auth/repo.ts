@@ -4,7 +4,7 @@
 
 import type { Perm, PermMatrix, PermRole } from './permissions'
 import type {
-  ApprovalRequest, ApprovalResult, AuditEntry, AuthSettings, Branch, BranchInfo, BranchInput, Device, DeviceCode, DeviceKind, OpeningHours, Role, Session, SignInResult, StaffInput, StaffRecord,
+  ApprovalRequest, ApprovalResult, AuditEntry, AuditQuery, AuthSettings, Branch, BranchInfo, BranchInput, Device, DeviceCode, DeviceKind, OpeningHours, Role, Session, SignInResult, StaffInput, StaffRecord,
 } from './types'
 
 export interface DeviceRow extends Device {
@@ -42,7 +42,8 @@ export interface AuthRepo {
    * last owner; managers and owners only by the owner), or a device with its sessions (not this one).
    */
   adminDelete(kind: 'staff' | 'device', id: string): Promise<void>
-  audit(limit?: number): Promise<AuditEntry[]>
+  /** Newest first; `from` / `to` (ISO, to exclusive) and `actions` narrow it (Kiểm soát, Nhật ký). */
+  audit(limit?: number, opts?: AuditQuery): Promise<AuditEntry[]>
   /** What each role may do (0009). Everyone signed in reads it; the owner always has everything. */
   permissions(): Promise<PermMatrix>
   /** Owner only: replace one role's permissions. Resolves with what the role has now. */

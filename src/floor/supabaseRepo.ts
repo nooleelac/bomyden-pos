@@ -14,7 +14,7 @@ import { liveTables } from '../lib/live'
 import { DEFAULT_SHIP, type ShipRules } from '../lib/ship'
 import * as E from './engine'
 import type { FloorRepo } from './repo'
-import type { Actor, BankAccount, Bill, CallChips, FloorState, GuestRequest, GuestRequestStatus, OnlineOrder, OnlineStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
+import type { Actor, BankAccount, BankFeedStatus, BankTxn, Bill, CallChips, FloorState, GuestRequest, GuestRequestStatus, OnlineOrder, OnlineStatus, SendLineInput, Line, LineMod, LineStatus, Notice, Order, Role, Shift, SidePart, SoldLine } from './types'
 
 type Row = Record<string, unknown>
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>
@@ -24,6 +24,10 @@ async function rows(q: Res<Row[]>): Promise<Row[]> {
   if (error) throw new Error(error.message)
   return data ?? []
 }
+function feedFromRow(r: Row): BankFeedStatus {
+  return { on: r.on === true, token: typeof r.token === 'string' ? r.token : '', lastAt: typeof r.last_at === 'string' ? r.last_at : null, countToday: Number(r.count_today) || 0 }
+}
+
 async function rpc<T = Row>(db: SupabaseClient, fn: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await db.rpc(fn, args)
   if (error) throw new Error(error.message)
@@ -206,6 +210,12 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         decidedBy: r.decided_by ? name(r.decided_by) : '', orderId: sn(r.order_id),
       })),
       onlineOrders: list('online_orders').map(r => onlineFromRow(r, name)),
+      // 0030: missing before the migration = feed off, nothing reported
+      bankFeed: (st.bank_feed as unknown) === true,
+      transfers: list('transfers').map((t): BankTxn => ({
+        id: s(t.id), amount: n(t.amount), content: s(t.content), code: sn(t.code), remitter: s(t.remitter), gateway: s(t.gateway),
+        account: s(t.account), receivedAt: s(t.received_at),
+      })),
     }
     if (no === loadNo) cache = out
     return out
@@ -253,7 +263,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       return r[0] ? { name: s(r[0].name), role: r[0].role as Role } : null
     },
     subscribe(onChange) {
-      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings', 'guest_requests', 'online_orders']
+      const tables = ['orders', 'order_items', 'order_item_modifiers', 'order_tables', 'kitchen_notices', 'ticket_states', 'tables', 'areas', 'bills', 'shifts', 'branch_settings', 'guest_requests', 'online_orders', 'bank_txns']
       const off = liveTables(db, 'floor-changes', tables, () => onChange(), 15_000)
       listeners.add(onChange)
       return () => {
@@ -391,6 +401,9 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
     quoteOnline: (id, p) => call('quote_online_order', { p_id: id, p_fee: p.fee, p_carrier: p.carrier, p_food_total: p.foodTotal }, (st, c) => E.quoteOnlineOrder(st, id, p, c)),
     acceptOnline: id => act(() => rpc<string | null>(db, 'accept_online_order', { p_id: id })).then(s),
     rejectOnline: (id, reason) => call('reject_online_order', { p_id: id, p_reason: reason }, (st, c) => E.rejectOnlineOrder(st, id, reason, c)),
+    bankFeedStatus: () => rpc<Row>(db, 'bank_feed_status', {}).then(feedFromRow),
+    setupBankFeed: (on, token) =>
+      act(async () => feedFromRow(await rpc<Row>(db, 'bank_feed_setup', { p_on: on, p_token: token ?? null }))),
     setOnlineSettings: p =>
       call('set_online_settings', { p_on: p.on, p_ship: { base_km: p.ship.baseKm, base_fee: p.ship.baseFee, per_km: p.ship.perKm, max_km: p.ship.maxKm } }, (st, c) => E.setOnlineSettings(st, p, c)),
     setGuestOrder: on => call('set_guest_order', { p_on: on }, (st, c) => E.setGuestOrder(st, on, c)),

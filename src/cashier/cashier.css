@@ -3,7 +3,7 @@
 
 .cashier-app { --cash: #2e7d32; --bank: #1565c0; --card: #6a1b9a; padding-bottom: 110px; }
 
-.cashier-main { max-width: 1240px; padding: 8px 16px 0; }
+.cashier-main { width: 100%; max-width: none; margin: 0; padding: 8px 16px 0; }
 .cashier-cols { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); align-items: start; }
 @media (min-width: 900px) {
   .cashier-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
@@ -135,3 +135,16 @@
 .diff.is-zero { color: var(--ok); }
 .diff.is-over { color: var(--warn); }
 .diff.is-short { color: var(--danger); }
+
+/* Tự xác nhận chuyển khoản (Pay2S, 0030): waiting for the bank, money short, money that names no order */
+.qr-feed { grid-column: 1 / -1; width: 100%; display: grid; gap: 8px; }
+.qr-feed p { margin: 0; }
+.qr-wait { padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 14px; }
+.qr-loose summary { cursor: pointer; font-size: 14px; }
+.qr-loose ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.qr-loose li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.qr-loose li > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Đọc to tiền về (Pay2S): one quiet line, changed in Cài đặt → Thông báo */
+.announce-line { display: block; margin: -4px 0 12px; padding: 2px 2px; color: var(--muted); font-size: 13px; text-decoration: none; }
+.announce-line .link { color: var(--accent, #0a84ff); }

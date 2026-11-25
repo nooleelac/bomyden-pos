@@ -131,11 +131,11 @@ export interface PickerState {
   note: string
 }
 
-/** Fresh line: default options ticked (never for required groups like Độ chín), sold-out removable components left out. */
+/** Fresh line: default options ticked (also in required groups, e.g. Độ chín → Medium), sold-out removable components left out. */
 export function initialState(menu: Menu, item: MenuItem, variantId: string | null = null, now = new Date()): PickerState {
   const options: Record<string, number> = {}
   for (const g of itemGroups(menu, item)) {
-    if (g.group.kind !== 'choice' || g.min > 0) continue
+    if (g.group.kind !== 'choice') continue
     let n = 0
     for (const o of g.options) {
       if (o.isDefault && !isSoldOut(o.soldOutUntil, now) && (g.max == null || n < g.max)) {

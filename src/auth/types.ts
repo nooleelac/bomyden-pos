@@ -132,6 +132,14 @@ export interface AuthSettings {
 
 export const DEFAULT_AUTH_SETTINGS: AuthSettings = { idleMinutes: 5, maxAttempts: 5, lockMinutes: 5, approvalSeconds: 120, voidApproval: 'sent' }
 
+export interface AuditQuery {
+  /** ISO time, inclusive */
+  from?: string
+  /** ISO time, exclusive */
+  to?: string
+  actions?: string[]
+}
+
 export interface AuditEntry {
   id: string
   at: string

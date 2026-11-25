@@ -113,6 +113,9 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
   const [count, setCount] = useState<Record<string, number>>({})
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  // Đếm két kín: whoever cannot read the audit log (the cashier) counts the drawer without seeing sales, cash taken
+  // or the expected cash; the difference shows on the report once the shift is closed.
+  const blind = !roleCan(useAuth().session.role, 'audit.view')
   usePrintSettings() // re-lay out the report when the paper or text size changes
   const sum = useMemo(() => shiftSummary(shift, floor.bills), [shift, floor.bills])
   const counted = countedTotal(count)
@@ -124,13 +127,17 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
     shiftReportBlocks({
       shop: floor.shop, register: shift.register, openedBy: shift.openedBy, openedAt: shift.openedAt,
       closedBy: draft ? null : props.me, closedAt: draft ? null : new Date().toISOString(),
-      summary: sum, countedDetail: count, countedCash: touched ? counted : null, note, openOrders, draft,
+      summary: sum, countedDetail: count, countedCash: touched ? counted : null, note, openOrders, draft, blind: blind && draft,
     })
   const preview = report(true)
   const set = (v: number, n: number) => setCount(c => ({ ...c, [String(v)]: Math.max(0, Math.min(9999, n)) }))
   const close = async () => {
-    if (diff !== 0 && !note.trim()) return props.onError('Két lệch so với dự kiến: ghi lý do')
-    if (!confirm(`Chốt ca với ${formatVnd(counted)} tiền mặt đếm được${diff ? ` (lệch ${diff > 0 ? '+' : ''}${formatMoney(diff)})` : ''}?`)) return
+    if (!blind && diff !== 0 && !note.trim()) return props.onError('Két lệch so với dự kiến: ghi lý do')
+    if (blind && !touched) return props.onError('Đếm tiền trong két theo mệnh giá trước khi chốt ca')
+    const confirmText = blind
+      ? `Chốt ca với ${formatVnd(counted)} tiền mặt đếm được? Chốt xong không sửa số đếm được nữa.`
+      : `Chốt ca với ${formatVnd(counted)} tiền mặt đếm được${diff ? ` (lệch ${diff > 0 ? '+' : ''}${formatMoney(diff)})` : ''}?`
+    if (!confirm(confirmText)) return
     setBusy(true)
     try {
       const blocks = report(false)
@@ -153,6 +160,23 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
             {shift.openedBy} mở lúc {clock(shift.openedAt)} {fmtDate(shift.openedAt)}
           </span>
         </div>
+        {blind && (
+          <>
+            <dl className="bill-sums shift-sums">
+              <div>
+                <dt>Số hoá đơn</dt>
+                <dd>{sum.bills}</dd>
+              </div>
+              <div>
+                <dt>Tiền đầu ca</dt>
+                <dd>{formatMoney(sum.openingFloat)}</dd>
+              </div>
+            </dl>
+            <p className="muted">Đếm két kín: đếm hết tiền mặt trong két theo mệnh giá rồi chốt ca. Số dự kiến và chênh lệch in trên báo cáo sau khi chốt.</p>
+          </>
+        )}
+        {!blind && (
+        <>
         <dl className="bill-sums shift-sums">
           <div>
             <dt>Số hoá đơn</dt>
@@ -216,6 +240,8 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
             </tr>
           </tbody>
         </table>
+        </>
+        )}
 
         <h2 className="sub-h">Đếm tiền theo mệnh giá</h2>
         <ul className="denoms">
@@ -238,16 +264,18 @@ function CloseShift(props: { floor: FloorState; repo: FloorRepo; shift: Shift; m
             )
           })}
         </ul>
-        <div className={'count-result ' + (!touched ? '' : diff === 0 ? 'is-zero' : diff > 0 ? 'is-over' : 'is-short')}>
+        <div className={'count-result ' + (blind || !touched ? '' : diff === 0 ? 'is-zero' : diff > 0 ? 'is-over' : 'is-short')}>
           <span>
             Đếm được <b>{formatVnd(counted)}</b>
           </span>
-          <span>
-            Chênh lệch <b>{touched ? (diff === 0 ? 'Khớp' : `${diff > 0 ? '+' : ''}${formatMoney(diff)}${diff > 0 ? ' (thừa)' : ' (thiếu)'}`) : '—'}</b>
-          </span>
+          {!blind && (
+            <span>
+              Chênh lệch <b>{touched ? (diff === 0 ? 'Khớp' : `${diff > 0 ? '+' : ''}${formatMoney(diff)}${diff > 0 ? ' (thừa)' : ' (thiếu)'}`) : '—'}</b>
+            </span>
+          )}
         </div>
         <label className="field">
-          <span className="field-label">Ghi chú {diff !== 0 && touched ? '(bắt buộc khi két lệch)' : ''}</span>
+          <span className="field-label">Ghi chú {!blind && diff !== 0 && touched ? '(bắt buộc khi két lệch)' : ''}</span>
           <textarea rows={2} maxLength={200} value={note} onChange={e => setNote(e.target.value)} placeholder="VD: thối nhầm bàn 7, đã báo quản lý" />
         </label>
         {openOrders > 0 && <p className="warn-text">Còn {openOrders} đơn chưa thanh toán (ca sau thu tiếp được).</p>}

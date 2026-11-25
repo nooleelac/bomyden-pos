@@ -15,7 +15,7 @@
 }
 
 /* Cài đặt → Thanh toán */
-.pay-settings { max-width: 720px; }
+.pay-settings { max-width: none; }
 .pay-methods { list-style: none; margin: 4px 0 0; padding: 0; }
 .pay-methods li { border-top: 1px solid var(--line); padding: 4px 0; }
 .pay-methods li:first-child { border-top: 0; }
@@ -67,7 +67,7 @@
 .print-steps code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 
 /* Cài đặt → Chi nhánh, Giờ làm việc (0022) */
-.branch-settings { max-width: 760px; }
+.branch-settings { max-width: none; }
 .branch-list { list-style: none; margin: 12px 0 16px; padding: 0; display: grid; gap: 10px; }
 .branch-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--surface); }
 .branch-card.is-here { border-color: var(--accent); }
@@ -105,3 +105,16 @@
 .chip-edit-row input { flex: 1; min-width: 0; }
 .chip-edit-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .chip-edit-add input { flex: 1 1 160px; min-width: 0; }
+
+/* Tự xác nhận chuyển khoản (BankFeedSettings) */
+.tag-default.is-off { background: var(--line); color: var(--muted); }
+.feed-steps { margin: 8px 0 12px; padding-left: 20px; display: grid; gap: 8px; }
+.feed-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.feed-copy code { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; padding: 6px 8px; border-radius: 6px; background: var(--surface-2, var(--line)); font-size: 13px; }
+.feed-copy .field { flex: 1 1 240px; min-width: 0; margin: 0; }
+
+/* Cài đặt → Thông báo */
+.notify-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.notify-warn { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); }
+.notify-tips { margin: 12px 0 0; padding-left: 18px; }
+.notify-tips li { margin: 3px 0; }

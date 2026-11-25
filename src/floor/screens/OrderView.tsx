@@ -23,6 +23,9 @@ import { DeliveryCard } from './DeliveryCard'
 import { SharedOrderSheet } from './FloorMap'
 import { Sheet } from './Sheet'
 
+/** 🎤 Gọi món bằng giọng nói on the order screen (src/voice, Edge Function voice-order). */
+const VOICE_ORDER = import.meta.env.VITE_VOICE_ORDER === '1'
+
 type Dialog =
   | { kind: 'void'; line: Line; qty?: number }
   | { kind: 'line'; line: Line }
@@ -357,7 +360,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
           {locked ? (
             <p className="warn">Đơn đang thanh toán: chưa thêm món được.</p>
           ) : (
-            <OrderScreen menu={menu} now={now} storageKey={storageKey} cart={cart} onSend={send} onReview={() => setTab('detail')} onNext={() => setTab('detail')} footExtra={sendExtra} />
+            <OrderScreen menu={menu} now={now} storageKey={storageKey} cart={cart} onSend={send} onReview={() => setTab('detail')} onNext={() => setTab('detail')} footExtra={sendExtra} voice={VOICE_ORDER} />
           )}
         </div>
 

@@ -520,11 +520,13 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       }
       save()
     },
-    async audit(limit = 100) {
+    async audit(limit = 100, opts = {}) {
       const s = await db()
       requirePerm(s, 'audit.view')
       const nm = (id: string | null) => (id ? (staffOf(s, id)?.name ?? '') : '')
-      return s.audit.slice(0, limit).map((a): AuditEntry => ({
+      return s.audit
+        .filter(a => (!opts.from || a.at >= opts.from) && (!opts.to || a.at < opts.to) && (!opts.actions || opts.actions.includes(a.action)))
+        .slice(0, limit).map((a): AuditEntry => ({
         id: a.id, at: a.at, action: a.action, staff: nm(a.staffId), approvedBy: nm(a.approvedBy),
         device: s.devices.find(d => d.id === a.deviceId)?.name ?? '', detail: a.detail,
       }))

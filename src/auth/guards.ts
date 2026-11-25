@@ -8,7 +8,7 @@ import { ROLES, type Role } from './types'
 /** Manager or owner by role (labels only; what someone may do comes from their permissions). */
 export const isManager = (r: Role | null | undefined): boolean => r === 'manager' || r === 'owner'
 
-export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'print-settings' | 'receipt-template' | 'branches' | 'opening-hours' | 'guest-qr' | 'online-settings' | 'orders' | 'bills' | 'revenue'
+export type Screen = 'floor' | 'floor-setup' | 'kitchen' | 'cashier' | 'shift' | 'staff' | 'menu-order' | 'menu-soldout' | 'menu-admin' | 'settings' | 'payment-settings' | 'print-settings' | 'receipt-template' | 'branches' | 'opening-hours' | 'guest-qr' | 'online-settings' | 'notify-settings' | 'orders' | 'bills' | 'revenue' | 'control'
 
 /** A screen opens with any one of these permissions. */
 const ACCESS: Record<Screen, Perm[]> = {
@@ -32,11 +32,15 @@ const ACCESS: Record<Screen, Perm[]> = {
   // printing the QR stickers goes with the tables; turning guest ordering on / off with the shop settings
   'guest-qr': ['tables.edit', 'settings.edit'],
   'online-settings': ['settings.edit'],
+  // per device: anyone who works the floor, the kitchen or the till chooses their own notices
+  'notify-settings': ['order.take', 'kitchen.work', 'pay.collect', 'shift.manage', 'settings.edit', 'audit.view'],
   orders: ['order.take'],
   // the database shows bills and payments to pay.collect or shift.manage (0009); Doanh thu goes with Xem nhật ký
   // (owner and manager by default)
   bills: ['pay.collect', 'shift.manage'],
   revenue: ['audit.view'],
+  // huỷ món, giảm giá, in lại, két lệch, xoá: for whoever reads the audit log (0029)
+  control: ['audit.view'],
 }
 
 export const SCREEN_LABEL: Record<Screen, string> = {
@@ -57,9 +61,11 @@ export const SCREEN_LABEL: Record<Screen, string> = {
   'opening-hours': 'Giờ làm việc',
   'guest-qr': 'Mã QR gọi món',
   'online-settings': 'Đặt hàng online',
+  'notify-settings': 'Thông báo',
   orders: 'Đơn',
   bills: 'Quản lý hoá đơn',
   revenue: 'Quản lý doanh thu',
+  control: 'Kiểm soát thất thoát',
 }
 
 /** The screen a route opens: #/ban, #/ban/caidat, #/bep/…, #/thu-ngan/…, #/ca, #/nhan-vien, #/cai-dat, menu routes. */
@@ -70,10 +76,11 @@ export function screenOf(route: string[]): Screen {
   if (top === 'thu-ngan') return 'cashier'
   if (top === 'ca') return 'shift'
   if (top === 'nhan-vien') return 'staff'
-  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : sub === 'may-in' ? 'print-settings' : sub === 'mau-in' ? 'receipt-template' : sub === 'chi-nhanh' ? 'branches' : sub === 'gio-lam' ? 'opening-hours' : sub === 'ma-qr' ? 'guest-qr' : sub === 'dat-hang' ? 'online-settings' : 'settings'
+  if (top === 'cai-dat') return sub === 'thanh-toan' ? 'payment-settings' : sub === 'may-in' ? 'print-settings' : sub === 'mau-in' ? 'receipt-template' : sub === 'chi-nhanh' ? 'branches' : sub === 'gio-lam' ? 'opening-hours' : sub === 'ma-qr' ? 'guest-qr' : sub === 'dat-hang' ? 'online-settings' : sub === 'thong-bao' ? 'notify-settings' : 'settings'
   if (top === 'don') return 'orders'
   if (top === 'hoa-don') return 'bills'
   if (top === 'doanh-thu') return 'revenue'
+  if (top === 'kiem-soat') return 'control'
   if (top === 'soldout') return 'menu-soldout'
   if (top === 'categories' || top === 'items' || top === 'groups') return 'menu-admin'
   return 'menu-order'
@@ -129,6 +136,7 @@ export function settingsFor(role: Role): (NavItem & { hint: string })[] {
     { href: '#/cai-dat/ma-qr', label: 'Mã QR gọi món', icon: '📱', hint: 'In mã QR dán bàn, khách tự quét gọi món, bật / tắt', screen: 'guest-qr' },
     { href: '#/cai-dat/dat-hang', label: 'Đặt hàng online', icon: '🛵', hint: 'Bật nhận đơn giao hàng, bảng giá ship, link cho khách', screen: 'online-settings' },
     { href: '#/cai-dat/thanh-toan', label: 'Thanh toán', icon: '💳', hint: 'Tiền mặt, ngân hàng, thẻ, thuế', screen: 'payment-settings' },
+    { href: '#/cai-dat/thong-bao', label: 'Thông báo', icon: '🔔', hint: role === 'owner' ? 'Thông báo trên điện thoại, đọc to tiền về, Pay2S' : 'Thông báo trên điện thoại, đọc to tiền về', screen: 'notify-settings' },
     { href: '#/cai-dat/may-in', label: 'Máy in', icon: '🖨', hint: 'Khổ giấy, cỡ chữ, in đậm, in thử', screen: 'print-settings' },
     { href: '#/cai-dat/mau-in', label: 'Mẫu in', icon: '🧾', hint: 'Tên quán, tiêu đề, lời cảm ơn, cỡ chữ từng phần', screen: 'receipt-template' },
     { href: '#/cai-dat/gio-lam', label: 'Giờ làm việc', icon: '⏰', hint: 'Giờ mở cửa từng ngày, chặn gọi món ngoài giờ, giờ chốt ngày', screen: 'opening-hours' },
@@ -166,6 +174,7 @@ export function manageFor(role: Role): NavItem[] {
   const all: NavItem[] = [
     { href: '#/hoa-don', label: 'Quản lý hoá đơn', icon: '🧾', screen: 'bills' },
     { href: '#/doanh-thu', label: 'Quản lý doanh thu', icon: '📈', screen: 'revenue' },
+    { href: '#/kiem-soat', label: 'Kiểm soát thất thoát', icon: '🛡️', screen: 'control' },
   ]
   return all.filter(l => canOpen(role, l.screen))
 }

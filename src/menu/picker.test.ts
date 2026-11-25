@@ -51,8 +51,12 @@ describe('picker validation and price', () => {
     expect(errors(menu, pick({ variantId: 'v-300' }))).toEqual(['Chọn Độ chín'])
   })
 
-  it('default sauce is pre-ticked, Độ chín never is', () => {
+  it('default sauce is pre-ticked; Độ chín only when an option is marked chọn sẵn', () => {
     expect(pick().options).toEqual({ 'o-pepper': 1 })
+    const withMedium: Menu = { ...menu, groups: menu.groups.map(g => ({ ...g, options: g.options.map(o => (o.id === 'o-m' ? { ...o, isDefault: true } : o)) })) }
+    const s = { ...initialState(withMedium, steak, 'v-300', NOW) }
+    expect(s.options).toEqual({ 'o-m': 1, 'o-pepper': 1 })
+    expect(errors(withMedium, s)).toEqual([])
   })
 
   it('prices a 300g steak with no egg at 276.000đ (spec example)', () => {

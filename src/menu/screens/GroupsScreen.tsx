@@ -95,7 +95,7 @@ function GroupEditor(props: { menu: Menu; value: ModifierGroup; onSave: (g: Modi
               <Switch
                 label="Bắt buộc chọn (chưa chọn thì không gửi bếp được)"
                 checked={g.minSelect > 0}
-                onChange={v => setG({ ...g, minSelect: v ? 1 : 0, maxSelect: v ? Math.max(g.maxSelect ?? 1, 1) : g.maxSelect, options: v ? g.options.map(o => ({ ...o, isDefault: false })) : g.options })}
+                onChange={v => setG({ ...g, minSelect: v ? 1 : 0, maxSelect: v ? Math.max(g.maxSelect ?? 1, 1) : g.maxSelect })}
               />
               <Field label="Chọn ít nhất" error={e.minSelect}>
                 <input type="number" inputMode="numeric" min={0} value={g.minSelect} onChange={x => setG({ ...g, minSelect: Number(x.target.value) })} />
@@ -131,11 +131,9 @@ function GroupEditor(props: { menu: Menu; value: ModifierGroup; onSave: (g: Modi
                   <input type="number" inputMode="numeric" min={1} max={10} className="w-qty" value={o.maxQty} onChange={x => setOpt(o.id, { maxQty: Number(x.target.value) })} />
                 </label>
               ) : (
-                g.minSelect === 0 && (
-                  <label className="small inline-check">
-                    <input type="checkbox" checked={o.isDefault} onChange={x => setOpt(o.id, { isDefault: x.target.checked })} /> chọn sẵn
-                  </label>
-                )
+                <label className="small inline-check">
+                  <input type="checkbox" checked={o.isDefault} onChange={x => setOpt(o.id, { isDefault: x.target.checked })} /> chọn sẵn
+                </label>
               )}
               <button type="button" className="icon-btn" aria-label={`Bỏ ${o.name}`} onClick={() => setG({ ...g, options: g.options.filter(x => x.id !== o.id) })}>
                 ✕

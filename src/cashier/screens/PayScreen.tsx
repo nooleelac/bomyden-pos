@@ -10,11 +10,12 @@ import { newId } from '../../menu/repo'
 import { useAuth, type Approved } from '../../auth/context'
 import { needsManagerForDiscount, quoteBill } from '../../floor/engine'
 import { errText, go } from '../../floor/hooks'
-import { isOpen, isUnfinished, orderTitle } from '../../floor/logic'
+import { clock, isOpen, isUnfinished, orderTitle } from '../../floor/logic'
 import type { FloorRepo } from '../../floor/repo'
 import { GuestPicker, Sheet } from '../../floor/screens/Sheet'
-import type { BankAccount, FloorState, Order, Role } from '../../floor/types'
-import { payMemo, prebillData, receiptGroups, vietQr } from '../bill'
+import type { BankAccount, BankTxn, FloorState, Order, Role } from '../../floor/types'
+import { orderCode, payMemo, prebillData, receiptGroups, vietQr } from '../bill'
+import { applyTransfers, isBankRef, looseTransfers, transfersFor } from '../transfers'
 import { DISCOUNT_REASONS, bankAccountFor, bankAccounts, enabledMethods } from '../config'
 import { printBlocks } from '../print'
 import { receiptBlocks } from '../receipt'
@@ -83,6 +84,19 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id, order?.payingAt])
 
+  // Tự xác nhận chuyển khoản (0030): the bank reported money with this row's memo → the row is confirmed by itself
+  const transfers = floor.transfers
+  useEffect(() => {
+    if (!order || !transfers || leaving.current) return
+    const r = applyTransfers(rows, transfers, x => payMemo(floor, order, x.part ?? ''))
+    if (r.rows === rows) return
+    setRows(r.rows)
+    for (const t of r.confirmed) props.onInfo(`🏦 Tiền đã về ${formatVnd(t.amount)}${t.remitter ? ` từ ${t.remitter}` : ''}`)
+    if (dialog && typeof dialog === 'object' && r.rows.find(x => x.id === dialog.qr)?.confirmed) setDialog(null)
+    // only when the bank's news or the rows change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transfers, rows])
+
   if (!order) return <p className="empty">Không tìm thấy đơn. <a href="#/thu-ngan">Về thu ngân</a></p>
   if (!isOpen(order)) {
     const bill = floor.bills.find(b => b.orderId === order.id)
@@ -104,6 +118,17 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
     const row: UiRow = { id: newId(), method, amount, tendered: null, confirmed: false }
     setRows(rs => [...rs, row])
     if (method === 'bank' && amount > 0) setDialog({ qr: row.id })
+  }
+  /** A transfer the cashier picked in the VietQR sheet: pays the row, or part of it with a new row for the rest. */
+  const takeTransfer = (rowId: string, t: BankTxn) => {
+    const r = rows.find(x => x.id === rowId)
+    if (!r) return
+    if (t.amount >= r.amount) setRow(rowId, { confirmed: true, ref: t.id })
+    else {
+      const rest: UiRow = { id: newId(), method: 'bank', amount: r.amount - t.amount, tendered: null, confirmed: false, part: r.part, bankId: r.bankId }
+      setRows(rs => rs.flatMap(x => (x.id === rowId ? [{ ...x, amount: t.amount, confirmed: true, ref: t.id }, rest] : [x])))
+    }
+    setDialog(null)
   }
   const splitBy = (n: number) => {
     const kept = rows.filter(r => r.confirmed)
@@ -244,7 +269,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
                       aria-label="Cách trả"
                       value={r.method}
                       disabled={r.confirmed}
-                      onChange={e => setRow(r.id, { method: e.target.value as PayMethod, confirmed: false, tendered: null })}
+                      onChange={e => setRow(r.id, { method: e.target.value as PayMethod, confirmed: false, tendered: null, ref: '' })}
                     >
                       {(['cash', 'bank', 'card'] as PayMethod[]).filter(m => methods.includes(m) || m === r.method).map(m => (
                         <option key={m} value={m}>
@@ -291,17 +316,22 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
                   {r.method === 'bank' && due > 0 && (
                     <div className="pay-row-foot">
                       <span className="muted small">Nội dung: {memoFor(r)}</span>
-                      {r.confirmed ? (
+                      {r.confirmed && isBankRef(r.ref) ? (
+                        <span className="pay-ok">✓ Ngân hàng báo đã nhận</span>
+                      ) : r.confirmed ? (
                         <span className="pay-ok">
-                          ✓ Đã nhận tiền{bankAccounts(floor.shop).length > 1 && ` · ${bankShort(bankAccountFor(floor.shop, r.bankId))}`}{' '}
+                          ✓ Đã nhận tiền{floor.bankFeed && ' (xác nhận tay)'}{bankAccounts(floor.shop).length > 1 && ` · ${bankShort(bankAccountFor(floor.shop, r.bankId))}`}{' '}
                           <button type="button" className="link small" onClick={() => setRow(r.id, { confirmed: false })}>
                             Huỷ xác nhận
                           </button>
                         </span>
                       ) : (
-                        <button type="button" className="btn btn-small btn-primary" onClick={() => setDialog({ qr: r.id })}>
-                          Hiện mã VietQR
-                        </button>
+                        <>
+                          {floor.bankFeed && <span className="muted small">⏳ Chờ tiền về</span>}
+                          <button type="button" className="btn btn-small btn-primary" onClick={() => setDialog({ qr: r.id })}>
+                            Hiện mã VietQR
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -372,7 +402,14 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
             })
             printBlocks(receiptBlocks(data), 'Phiếu chuyển khoản').catch(fail)
           }}
-          onConfirm={bankId => (setRow(qrRow.id, { confirmed: true, bankId }), setDialog(null))}
+          onConfirm={bankId => (setRow(qrRow.id, { confirmed: true, bankId, ref: '' }), setDialog(null))}
+          taken={new Set(rows.filter(r => r.id !== qrRow.id && isBankRef(r.ref)).map(r => r.ref!))}
+          onTake={t => takeTransfer(qrRow.id, t)}
+          onSimulate={
+            floor.sample && repo.simulateTransfer
+              ? () => repo.simulateTransfer!({ amount: qrRow.amount, content: `MBVCB.8812 ${memoFor(qrRow)} CHUYEN TIEN`, remitter: 'KHACH MAU' }).catch(fail)
+              : undefined
+          }
         />
       )}
       {dialog === 'prebill' && (
@@ -610,8 +647,24 @@ function QrSheet(props: {
   onClose: () => void
   onPrint: (bankId?: string) => void
   onConfirm: (bankId?: string) => void
+  /** Transfers other rows already took. */
+  taken: ReadonlySet<string>
+  onTake: (t: BankTxn) => void
+  /** Sample only: money in with this memo, as if the guest paid. */
+  onSimulate?: () => void
 }) {
   const shop = props.floor.shop
+  const feed = !!props.floor.bankFeed
+  const list = props.floor.transfers ?? []
+  // money that came with this memo but short of the amount (the guest typed less)
+  const short = transfersFor(list, props.memo, props.taken).filter(t => t.amount < props.amount)
+  // money that names no open order: the guest changed the memo or paid from a wallet
+  const openCodes = new Set(props.floor.orders.filter(isOpen).map(o => orderCode(o.id)))
+  const loose = looseTransfers(list, props.taken, new Date()).filter(t => !t.code || !openCodes.has(t.code))
+  const confirmByHand = (id?: string) => {
+    if (feed && !confirm('Ngân hàng chưa báo khoản này về. Chỉ xác nhận tay khi đã thấy tiền trong app ngân hàng của quán. Chủ quán sẽ được báo. Tiếp tục?')) return
+    props.onConfirm(id)
+  }
   // the default account until the cashier picks another (Cài đặt → Thanh toán lists them)
   const accounts = bankAccounts(shop)
   const [bankId, setBankId] = useState<string | undefined>(props.bankId)
@@ -627,9 +680,9 @@ function QrSheet(props: {
           <button type="button" className="btn" onClick={() => props.onPrint(bank?.id)} disabled={!payload}>
             🖨 In mã
           </button>
-          <button type="button" className="btn btn-primary btn-grow" onClick={() => props.onConfirm(bank?.id)} disabled={!payload}>
+          <button type="button" className={'btn btn-grow' + (feed ? '' : ' btn-primary')} onClick={() => confirmByHand(bank?.id)} disabled={!payload}>
             <span>{formatVnd(props.amount)}</span>
-            <b>Đã nhận tiền</b>
+            <b>{feed ? 'Xác nhận tay' : 'Đã nhận tiền'}</b>
           </button>
         </>
       }
@@ -671,7 +724,52 @@ function QrSheet(props: {
               <dd>{bank?.holder}</dd>
             </div>
           </dl>
-          <p className="muted small">Mở app ngân hàng của quán, thấy tiền về đúng số và đúng nội dung rồi mới bấm “Đã nhận tiền”.</p>
+          {feed ? (
+            <div className="qr-feed">
+              {short.length > 0 ? (
+                short.map(t => (
+                  <p key={t.id} className="warn-text">
+                    Đã về {formatVnd(t.amount)}, còn thiếu {formatVnd(props.amount - t.amount)}.{' '}
+                    <button type="button" className="btn btn-small" onClick={() => props.onTake(t)}>
+                      Ghi nhận {formatVnd(t.amount)}, thu phần còn lại
+                    </button>
+                  </p>
+                ))
+              ) : (
+                <p className="qr-wait">⏳ Đang chờ ngân hàng báo tiền về. Khách chuyển đúng nội dung thì tự xác nhận, không cần bấm gì.</p>
+              )}
+              {loose.length > 0 && (
+                <details className="qr-loose">
+                  <summary>Tiền về chưa khớp đơn nào ({loose.length})</summary>
+                  <ul>
+                    {loose.map(t => (
+                      <li key={t.id}>
+                        <span>
+                          <b>{formatVnd(t.amount)}</b> · {clock(t.receivedAt)}
+                          {t.remitter && ` · ${t.remitter}`}
+                          <span className="muted small block">“{t.content}”</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          onClick={() => confirm(`Dùng khoản ${formatVnd(t.amount)} (“${t.content}”) cho đơn này? Chủ quán sẽ được báo.`) && props.onTake(t)}
+                        >
+                          Dùng khoản này
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {props.onSimulate && (
+                <button type="button" className="btn btn-small" onClick={props.onSimulate}>
+                  🧪 Giả lập khách chuyển khoản (dữ liệu mẫu)
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="muted small">Mở app ngân hàng của quán, thấy tiền về đúng số và đúng nội dung rồi mới bấm “Đã nhận tiền”.</p>
+          )}
           {shop.sample && <p className="warn-text small">Tài khoản mẫu: không chuyển tiền thật vào mã này.</p>}
         </div>
       ) : (

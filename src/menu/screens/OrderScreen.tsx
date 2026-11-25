@@ -4,11 +4,14 @@
 // With `onNext` the button is Tiếp theo: the order shows the cart on a check screen and sends it from there.
 // With `storageKey` the unsent cart is kept on this device (per order) until it is sent or removed.
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { describeLine, initialState, itemBlock, liveVariants, priceLabel, quoteLine, searchItems, toSendLine, vnd, type PickerState } from '../picker'
 import { isSoldOut, type Menu, type MenuItem } from '../types'
 import { ItemPicker } from './ItemPicker'
 import { draftKey, useCart, type Cart } from '../cart'
+
+// only staff screens with voice turned on load it
+const VoiceSheet = lazy(() => import('../../voice/VoiceSheet').then(m => ({ default: m.VoiceSheet })))
 
 export function OrderScreen(props: {
   menu: Menu
@@ -29,6 +32,8 @@ export function OrderScreen(props: {
   onNext?: () => void
   /** Search box hint (the guest QR page has no dish codes to offer). */
   searchHint?: string
+  /** 🎤 next to the search box: say the order, check it, add it to the cart (src/voice). */
+  voice?: boolean
 }) {
   const { menu, now, onSend, storageKey, onCartChange } = props
   const [query, setQuery] = useState('')
@@ -39,6 +44,7 @@ export function OrderScreen(props: {
   const [sent, setSent] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
+  const [voiceOpen, setVoiceOpen] = useState(false)
   useEffect(() => onCartChange?.(lines.length), [lines.length, onCartChange])
 
   const tops = menu.categories.filter(c => !c.parentId && c.visible).sort((a, b) => a.sort - b.sort)
@@ -92,7 +98,7 @@ export function OrderScreen(props: {
 
   return (
     <div className="order">
-      <div className="search-bar">
+      <div className={'search-bar' + (props.voice ? ' has-mic' : '')}>
         <input
           type="search"
           value={query}
@@ -100,6 +106,11 @@ export function OrderScreen(props: {
           aria-label="Tìm món"
           onChange={e => setQuery(e.target.value)}
         />
+        {props.voice && (
+          <button type="button" className="mic-btn" aria-label="Gọi món bằng giọng nói" title="Gọi món bằng giọng nói" onClick={() => setVoiceOpen(true)}>
+            🎤
+          </button>
+        )}
       </div>
       <div className="order-body">
         <nav className="cat-rail" aria-label="Nhóm món">
@@ -224,6 +235,21 @@ export function OrderScreen(props: {
           onAdd={s => addLine(s, open.key)}
           onClose={() => setOpen(null)}
         />
+      )}
+
+      {voiceOpen && (
+        <Suspense fallback={null}>
+          <VoiceSheet
+            menu={menu}
+            now={now}
+            onClose={() => setVoiceOpen(false)}
+            onAdd={states => {
+              setSent(null)
+              setLines(prev => [...prev, ...states.map(state => ({ key: draftKey(), state }))])
+              setVoiceOpen(false)
+            }}
+          />
+        </Suspense>
       )}
     </div>
   )

@@ -308,6 +308,8 @@ export interface ShiftReportData {
   openOrders?: number
   /** Printed before the shift is closed. */
   draft?: boolean
+  /** Đếm két kín: the cashier does not see sales, cash taken or the expected cash before the shift is closed. */
+  blind?: boolean
 }
 
 export function shiftReportBlocks(d: ShiftReportData): Block[] {
@@ -323,6 +325,28 @@ export function shiftReportBlocks(d: ShiftReportData): Block[] {
   if (d.closedAt) lines(row(`Chốt ca${d.closedBy ? ` (${d.closedBy})` : ''}`, `${fmtTime(d.closedAt)} ${fmtDate(d.closedAt)}`))
   t(rule())
   lines(row('Số hoá đơn', String(s.bills)))
+  if (d.blind) {
+    t(rule())
+    t('TIỀN MẶT TRONG KÉT', true)
+    lines(row('  Tiền đầu ca', formatMoney(s.openingFloat)))
+    if (d.countedCash != null) {
+      const detail = DENOMINATIONS.map(v => [v, d.countedDetail?.[String(v)] ?? 0] as const).filter(([, n]) => n > 0)
+      if (detail.length) {
+        t('  Đếm thực tế:')
+        for (const [v, n] of detail) lines(row(`    ${formatMoney(v)} x ${n}`, formatMoney(v * n)))
+      }
+      lines(row('  Tiền đếm được', formatMoney(d.countedCash)), true)
+    }
+    lines(wrap('Đếm két kín: số dự kiến và chênh lệch có trong báo cáo sau khi chốt ca.', cols(), '  '))
+    if (d.note) lines(wrap(`Ghi chú: ${d.note}`, cols(), '  '))
+    t(rule())
+    t('')
+    lines(row('Thu ngân ký', 'Quản lý ký'))
+    t('')
+    t('')
+    t('')
+    return out
+  }
   lines(row('Tiền hàng', formatMoney(s.subtotal)))
   if (s.discount) lines(row('Giảm giá hoá đơn', formatMoney(-s.discount)))
   if (s.serviceCharge) lines(row('Phí phục vụ', formatMoney(s.serviceCharge)))

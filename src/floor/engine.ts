@@ -16,7 +16,7 @@ import { TEXT_MAX, receiptTemplate } from '../cashier/template'
 import { allKitchenLines, groupLabel, isOpen, isUnfinished, lineText, openOrdersAt, orderLabel, tableName, ticketKey, type KitchenLine } from './logic'
 import {
   activeGeo, CALL_CHIP_LEN, CALL_CHIP_MAX, NOTE_MAX, VOID_REASONS, RUSH_REASONS,
-  type Actor, type Area, type BankAccount, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestGeoSettings, type GuestRequest, type OnlineOrder, type OnlinePay, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
+  type Actor, type Area, type BankAccount, type BankTxn, type Bill, type CallChips, type FloorSettings, type FloorState, type GuestGeoSettings, type GuestRequest, type OnlineOrder, type OnlinePay, type Line, type LineMod, type LineStatus, type Notice, type Order, type PaymentSettings, type ReceiptSettings, type SendLineInput, type Shift, type ShopProfile, type SidePart, type Table,
 } from './types'
 
 export interface Ctx {
@@ -852,6 +852,16 @@ export function payOrder(s: FloorState, orderId: string, inp: PayInput, c: Ctx):
   if (paid !== bill.total) fail(`Tổng thanh toán ${paid} khác số phải trả ${bill.total}`)
   // same rule the cashier screen shows (settle): kept here so a direct call cannot close a short bill
   if (!settle(bill.total, inp.payments.map(p => ({ ...p, confirmed: true }))).canSettle) fail('Chưa thu đủ tiền')
+  // 0030: a transfer the bank reported pays one payment only, and covers it
+  const used = new Set<string>()
+  for (const p of inp.payments) {
+    const ref = (p.ref ?? '').trim()
+    if (p.method !== 'bank' || !ref.startsWith('p2s:')) continue
+    const tx = (s.transfers ?? []).find(x => x.id === ref)
+    if (!tx || used.has(ref)) fail(tx ? 'Khoản tiền về này đã được dùng cho hoá đơn khác' : 'Không thấy giao dịch ngân hàng này: tải lại trang rồi thử lại')
+    if (tx.amount < p.amount) fail(`Tiền về ${tx.amount} ít hơn số thu ${p.amount}`)
+    used.add(ref)
+  }
 
   const t = iso(c)
   const seq = Math.max(0, ...s.bills.map(b => Number(b.billNo.replace(/\D/g, '')) || 0)) + 1
@@ -865,7 +875,8 @@ export function payOrder(s: FloorState, orderId: string, inp: PayInput, c: Ctx):
     })),
     cashier: c.actor.name, paidAt: t, shiftId: shift.id, printCount: 0, lastPrintAt: null, lastPrintBy: '',
   }
-  const state = patchOrder({ ...s, bills: [...s.bills, row] }, o.id, { status: 'paid', closedAt: t, payingAt: null, payingBy: null })
+  const transfers = used.size ? (s.transfers ?? []).filter(x => !used.has(x.id)) : s.transfers
+  const state = patchOrder({ ...s, bills: [...s.bills, row], transfers }, o.id, { status: 'paid', closedAt: t, payingAt: null, payingBy: null })
   return { state, billId: row.id }
 }
 
@@ -895,7 +906,8 @@ export function openShift(s: FloorState, inp: { openingFloat: number; register?:
 }
 
 /**
- * Chốt ca: the counted cash (by note) is compared with opening float + cash taken. A difference needs a note.
+ * Chốt ca: the counted cash (by note) is compared with opening float + cash taken. A difference needs a note from
+ * those who see the expected cash (audit.view); a cashier counts blind (đếm két kín) and the difference is just recorded.
  * Refused while an order is on someone's payment screen.
  */
 export function closeShift(s: FloorState, inp: { shiftId: string; countedDetail: Record<string, number>; note?: string }, c: Ctx): FloorState {
@@ -911,7 +923,7 @@ export function closeShift(s: FloorState, inp: { shiftId: string; countedDetail:
   }
   const expected = shiftSummary(sh, s.bills).expectedCash
   const note = (inp.note ?? '').trim()
-  if (counted !== expected && !note) fail('Két lệch so với dự kiến: ghi lý do')
+  if (counted !== expected && !note && can(c, 'audit.view')) fail('Két lệch so với dự kiến: ghi lý do')
   const detail = Object.fromEntries(Object.entries(inp.countedDetail).filter(([, n]) => n > 0))
   return {
     ...s,
@@ -1285,6 +1297,27 @@ export function setOnlineSettings(s: FloorState, p: { on: boolean; ship: ShipRul
   const bad = shipRulesProblem(p.ship)
   if (bad) fail(bad)
   return { ...s, settings: { ...s.settings, onlineOrder: p.on, onlineShip: p.ship } }
+}
+
+/** Sample of the Pay2S webhook (bank_txns_in in 0030): money in on the shop account, the order code read from the memo. */
+export function receiveTransfer(s: FloorState, inp: { amount: number; content: string; remitter?: string }, c: Ctx): FloorState {
+  if (!Number.isInteger(inp.amount) || inp.amount <= 0) fail('Số tiền phải là số đồng dương')
+  const tx: BankTxn = {
+    id: 'p2s:' + c.newId(), amount: inp.amount, content: inp.content.slice(0, 300), code: memoCode(inp.content), remitter: inp.remitter ?? '',
+    gateway: 'MAU', account: '', receivedAt: iso(c),
+  }
+  return { ...s, transfers: [...(s.transfers ?? []), tx] }
+}
+
+/** "MBVCB.123 bmd 3f9a2c BAN5B" → "3F9A2C" (regexp_match in bank_txns_in). */
+export function memoCode(content: string): string | null {
+  return /BMD\s*([0-9A-Z]{6})/.exec(content.toUpperCase())?.[1] ?? null
+}
+
+/** Cài đặt → Thanh toán → Tự xác nhận chuyển khoản (bank_feed_setup, owner only). */
+export function setBankFeed(s: FloorState, on: boolean, c: Ctx): FloorState {
+  if (c.actor.role !== 'owner') fail('Chỉ chủ quán làm được việc này')
+  return { ...s, bankFeed: on }
 }
 
 /** 32 random hex characters, like replace(gen_random_uuid()::text, '-', '') in 0023. */

@@ -161,6 +161,23 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
     expect(txt).toContain('Chưa rõ TK')
   })
 
+  it('tự xác nhận chuyển khoản: a reported transfer pays one payment only, and covers it', () => {
+    const t = table9()
+    let s = E.openShift(t.s, { openingFloat: 0 }, cashier).state
+    s = E.receiveTransfer(s, { amount: 296000, content: `IBFT ${payMemo(s, s.orders.find(o => o.id === t.id)!)}` }, cashier)
+    s = E.receiveTransfer(s, { amount: 100000, content: 'chuyen tien' }, cashier)
+    const [mine, other] = s.transfers!
+    expect(mine.code).toBe(orderCode(t.id))
+    expect(other.code).toBeNull()
+    expect(() => E.payOrder(s, t.id, { payments: [{ method: 'bank', amount: 296000, ref: other.id }] }, cashier)).toThrow('Tiền về 100000 ít hơn số thu 296000')
+    expect(() => E.payOrder(s, t.id, { payments: [{ method: 'bank', amount: 196000, ref: mine.id }, { method: 'bank', amount: 100000, ref: mine.id }] }, cashier)).toThrow('đã được dùng')
+    expect(() => E.payOrder(s, t.id, { payments: [{ method: 'bank', amount: 296000, ref: 'p2s:none' }] }, cashier)).toThrow('Không thấy giao dịch')
+    const r = E.payOrder(s, t.id, { payments: [{ method: 'bank', amount: 296000, ref: mine.id }] }, cashier)
+    expect(r.state.transfers!.map(x => x.id)).toEqual([other.id])
+    expect(r.state.bills.find(b => b.id === r.billId)!.payments[0].ref).toBe(mine.id)
+    expect(() => E.setBankFeed(s, true, cashier)).toThrow('Chỉ chủ quán')
+  })
+
   it('refuses short, over and non-cash overpayment', () => {
     const t = table9()
     const id = t.id
@@ -210,7 +227,7 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
     expect(p2.state.bills[0]).toMatchObject({ printCount: 2, lastPrintBy: 'Lan' })
   })
 
-  it('shift: totals by method, expected cash = float + cash, difference needs a note', () => {
+  it('shift: totals by method, expected cash = float + cash, difference needs a note (not from a blind count)', () => {
     const t = table9()
     const id = t.id
     let s = t.s
@@ -222,7 +239,9 @@ describe('thanh toán (sample engine, same rules as pay_order)', () => {
     expect(sum).toMatchObject({ bills: 1, sales: 296000, byMethod: { cash: 96000, bank: 200000, card: 0 }, cashTendered: 500000, changeGiven: 404000, expectedCash: 1596000 })
     const short = { '500000': 3, '50000': 1, '20000': 2 } // 1.590.000
     expect(countedTotal(short)).toBe(1590000)
-    expect(() => E.closeShift(s, { shiftId: sh.id, countedDetail: short }, cashier)).toThrow('Két lệch')
+    // the manager sees the expected cash and explains a difference; the cashier counts blind (đếm két kín, 0029)
+    expect(() => E.closeShift(s, { shiftId: sh.id, countedDetail: short }, at(60, 'manager'))).toThrow('Két lệch')
+    expect(E.closeShift(s, { shiftId: sh.id, countedDetail: short }, cashier).shifts[0]).toMatchObject({ countedCash: 1590000, expectedCash: 1596000, note: '' })
     expect(() => E.closeShift(s, { shiftId: sh.id, countedDetail: { '300000': 1 } }, cashier)).toThrow('Mệnh giá không hợp lệ')
     const closed = E.closeShift(s, { shiftId: sh.id, countedDetail: short, note: 'Thối nhầm bàn 9' }, at(60, 'cashier'))
     expect(closed.shifts[0]).toMatchObject({ countedCash: 1590000, expectedCash: 1596000, closedBy: 'Lan', note: 'Thối nhầm bàn 9' })

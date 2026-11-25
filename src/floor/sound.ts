@@ -2,7 +2,7 @@
 // new ticket "ding", SỬA two beeps, HUỶ a long horn, GIỤC a bell, late a low tone, waiter "món xong".
 // Browsers only play sound after a tap: the kitchen starts the shift with "Bắt đầu ca – bật âm thanh".
 
-export type SoundKind = 'new' | 'modify' | 'void' | 'chase' | 'late' | 'ready' | 'move'
+export type SoundKind = 'new' | 'modify' | 'void' | 'chase' | 'late' | 'ready' | 'move' | 'money'
 
 type Tone = { f: number; at: number; dur: number; type?: OscillatorType; gain?: number }
 
@@ -14,6 +14,8 @@ const PATTERNS: Record<SoundKind, Tone[]> = {
   late: [{ f: 196, at: 0, dur: 0.6, type: 'triangle', gain: 0.6 }],
   ready: [{ f: 880, at: 0, dur: 0.15 }, { f: 1175, at: 0.16, dur: 0.3 }],
   move: [{ f: 660, at: 0, dur: 0.12, gain: 0.25 }],
+  // tiền về (cashier, on a device with no Vietnamese voice)
+  money: [{ f: 1047, at: 0, dur: 0.18 }, { f: 1319, at: 0.18, dur: 0.18 }, { f: 1568, at: 0.36, dur: 0.4 }],
 }
 
 let ctx: AudioContext | null = null

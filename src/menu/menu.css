@@ -76,6 +76,8 @@
 }
 .tab.is-on { color: var(--text); border-bottom-color: var(--accent); }
 main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
+/* staff screens (every staff app root has .floor-app) use the whole width, like the kitchen */
+.floor-app main { width: 100%; max-width: none; margin: 0; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -181,6 +183,13 @@ main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
 /* order screen (Sapo style): groups in a rail on the left, dish cards in a grid, Thành tiền + Gửi bếp bar at the bottom */
 .search-bar { padding: 8px 0; }
 .search-bar input { min-height: 46px; font-size: 16px; border-radius: 10px; }
+.search-bar.has-mic { display: flex; gap: 8px; align-items: center; }
+.search-bar.has-mic input { flex: 1; min-width: 0; }
+.mic-btn {
+  flex: none; width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
+  font-size: 22px; line-height: 1; display: grid; place-items: center; cursor: pointer;
+}
+.mic-btn:active { background: var(--accent); }
 .order-body { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 0; align-items: start; }
 @media (min-width: 900px) { .order-body { grid-template-columns: 150px minmax(0, 1fr); } }
 .cat-rail {

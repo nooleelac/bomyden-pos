@@ -1,7 +1,7 @@
 /* Quản lý hoá đơn and Quản lý doanh thu. Builds on menu.css tokens (.card, .chip, .btn) and the cashier list rows. */
 
 .reports-app { --cash: #2e7d32; --bank: #1565c0; --card: #6a1b9a; }
-.reports-main { max-width: 1240px; margin: 0 auto; padding: 8px 16px 0; }
+.reports-main { width: 100%; max-width: none; margin: 0; padding: 8px 16px 0; }
 .reports-main h1 { font-size: 20px; margin: 0; }
 .reports-main h2 { font-size: 16px; margin: 0 0 8px; }
 .money-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -92,3 +92,9 @@
 .rank-table td { padding: 6px; border-top: 1px solid var(--line); }
 .rank-table th:nth-child(n + 3), .rank-table td:nth-child(n + 3) { text-align: right; white-space: nowrap; }
 .rank-table th:first-child, .rank-table td:first-child { width: 24px; padding-left: 0; }
+
+/* Kiểm soát thất thoát (ControlPage) */
+.ctl-warn { color: var(--danger); font-weight: 700; }
+.ctl-kinds { margin: 4px 0 10px; }
+.ctl-kinds .chip:disabled { opacity: .45; }
+.ctl-people td, .ctl-people th { white-space: nowrap; }

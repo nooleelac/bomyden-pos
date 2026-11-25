@@ -144,6 +144,12 @@ export function PaymentSettings(props: { floor: FloorState; repo: FloorRepo; onE
         </Section>
       )}
 
+      {saved.payMethods.bank && (
+        <p className="muted small">
+          Tự xác nhận chuyển khoản (Pay2S) và đọc to tiền về nằm ở <a href="#/cai-dat/thong-bao">Cài đặt → Thông báo</a>.
+        </p>
+      )}
+
       <Section title="Thuế">
         <fieldset className="pick-group">
           <legend className="field-label">Mức thuế GTGT</legend>
