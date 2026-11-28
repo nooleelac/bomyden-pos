@@ -158,6 +158,10 @@ function NetworkPanel(props: { onError: (m: string) => void; onInfo: (m: string)
 
   return (
     <div className="printer-panel">
+      <p className="muted">
+        Mỗi khu có thể gán sẵn một máy in (Khu vực &amp; bàn → Máy in của khu): phiếu tạm tính, phiếu chuyển khoản và hoá đơn của bàn
+        trong khu đó in ra máy của khu, từ bất kỳ điện thoại nào.
+      </p>
       {agents === null ? (
         <p className="muted">Đang tải…</p>
       ) : agents.length === 0 ? (

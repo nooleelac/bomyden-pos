@@ -8,7 +8,7 @@ import type { FloorRepo } from '../../floor/repo'
 import { DeliveryCard } from '../../floor/screens/DeliveryCard'
 import type { FloorState } from '../../floor/types'
 import { billData, receiptTableTitle } from '../bill'
-import { printBlocks } from '../print'
+import { areaPrinterFor, printBlocks } from '../print'
 import { receiptBlocks } from '../receipt'
 import { ReceiptPreview } from './ui'
 import { usePrintSettings } from '../paper'
@@ -33,7 +33,7 @@ export function BillPage(props: { floor: FloorState; repo: FloorRepo; billId: st
     setBusy(true)
     try {
       const count = await repo.printBill(bill.id)
-      await printBlocks(receiptBlocks(billData(floor, bill, { count, at: new Date().toISOString(), by: props.me })), bill.billNo)
+      await printBlocks(receiptBlocks(billData(floor, bill, { count, at: new Date().toISOString(), by: props.me })), bill.billNo, areaPrinterFor(floor, bill.orderId))
     } catch (e) {
       props.onError(errText(e))
     } finally {

@@ -4,7 +4,8 @@
 
 import QRCode from 'qrcode'
 import { escposReceipt } from './escpos'
-import { getPrintSettings, printSpec, type PrintSettings } from './paper'
+import type { FloorState } from '../floor/types'
+import { getPrintSettings, printSpec, type NetworkTarget, type PrintSettings } from './paper'
 import { sendBluetooth } from './printers/bluetooth'
 import { sendNetwork } from './printers/network'
 import type { Block } from './receipt'
@@ -101,10 +102,25 @@ export function printHtml(html: string): Promise<void> {
   })
 }
 
-/** Prints on this device's printer (Cài đặt → Máy in): the print dialog, or straight to a Bluetooth / WiFi printer. */
-export async function printBlocks(blocks: Block[], title = 'Hoá đơn'): Promise<void> {
+/**
+ * The printer of the area the order sits in (Thiết lập → khu, 0038), or null: no table (takeaway, online), or the area
+ * has none. A merged group uses its primary table's area.
+ */
+export function areaPrinterFor(floor: FloorState, orderId: string): NetworkTarget | null {
+  const order = floor.orders.find(o => o.id === orderId)
+  const tableId = order?.tableId ?? order?.tables[0]?.tableId
+  if (!tableId) return null
+  const areaId = floor.tables.find(t => t.id === tableId)?.areaId
+  return floor.areas.find(a => a.id === areaId)?.printer ?? null
+}
+
+/**
+ * Prints on this device's printer (Cài đặt → Máy in): the print dialog, or straight to a Bluetooth / WiFi printer.
+ * printer: a table slip goes to its area's printer instead (areaPrinterFor); paper and text size stay this device's.
+ */
+export async function printBlocks(blocks: Block[], title = 'Hoá đơn', printer?: NetworkTarget | null): Promise<void> {
   const s = getPrintSettings()
-  const t = s.target
+  const t = printer ?? s.target
   if (t.kind === 'dialog') return printHtml(receiptHtml(blocks, title))
   const data = escposReceipt(blocks, s)
   if (t.kind === 'bluetooth') return sendBluetooth(t.id, data)

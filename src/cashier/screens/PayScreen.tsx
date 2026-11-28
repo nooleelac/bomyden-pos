@@ -17,7 +17,7 @@ import type { BankAccount, BankTxn, FloorState, Order, Role } from '../../floor/
 import { orderCode, payMemo, prebillData, receiptGroups, vietQr } from '../bill'
 import { applyTransfers, isBankRef, looseTransfers, transfersFor } from '../transfers'
 import { DISCOUNT_REASONS, bankAccountFor, bankAccounts, enabledMethods } from '../config'
-import { printBlocks } from '../print'
+import { areaPrinterFor, printBlocks } from '../print'
 import { receiptBlocks } from '../receipt'
 import { MoneyInput, QrImage, ReceiptPreview } from './ui'
 import { usePrintSettings } from '../paper'
@@ -400,7 +400,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
             const data = prebillData(floor, order, totals, {
               at: new Date().toISOString(), cashier: props.me, discount: disc?.d, discountReason: disc?.reason, qrAmount: qrRow.amount, qrPart: qrRow.part, qrBankId: bankId,
             })
-            printBlocks(receiptBlocks(data), 'Phiếu chuyển khoản').catch(fail)
+            printBlocks(receiptBlocks(data), 'Phiếu chuyển khoản', areaPrinterFor(floor, order.id)).catch(fail)
           }}
           onConfirm={bankId => (setRow(qrRow.id, { confirmed: true, bankId, ref: '' }), setDialog(null))}
           taken={new Set(rows.filter(r => r.id !== qrRow.id && isBankRef(r.ref)).map(r => r.ref!))}
@@ -424,7 +424,7 @@ export function PayScreen(props: { floor: FloorState; repo: FloorRepo; role: Rol
           onPrint={async blocks => {
             try {
               await repo.requestBill(order.id)
-              await printBlocks(blocks, 'Phiếu tạm tính')
+              await printBlocks(blocks, 'Phiếu tạm tính', areaPrinterFor(floor, order.id))
             } catch (e) {
               fail(e)
             }

@@ -1,6 +1,7 @@
 // Floor (areas, tables, orders on tables) and kitchen model as the screens see it.
 // Mirrors 0001–0005 (snake_case there, camelCase here). Money is whole VND, times are ISO strings.
 
+import type { NetworkTarget } from '../cashier/paper'
 import type { ReceiptTemplate } from '../cashier/template'
 import type { PayMethod } from '../lib/billing'
 import type { GuestGeo } from '../lib/geo'
@@ -13,6 +14,8 @@ export interface Area {
   sort: number
   /** false = tạm đóng (grey, no new orders) */
   active: boolean
+  /** WiFi/LAN printer for this area's table slips (0038); null/absent = each device's own printer. */
+  printer?: NetworkTarget | null
 }
 
 export interface Table {

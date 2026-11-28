@@ -3,7 +3,9 @@
 // good (with the orders still open on them). Grid order now; drag-and-drop later.
 
 import { roleCan } from '../../auth/permissions'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { NetworkTarget } from '../../cashier/paper'
+import { listAgents, networkPrintingAvailable, type PrintAgent } from '../../cashier/printers/network'
 import { newId } from '../../menu/repo'
 import { areaTables, openOrdersAt } from '../logic'
 import type { FloorRepo } from '../repo'
@@ -19,6 +21,16 @@ export function SetupScreen(props: { floor: FloorState; repo: FloorRepo; role: R
   const [areaEdit, setAreaEdit] = useState<{ id: string; name: string } | null>(null)
   const manager = roleCan(role, 'tables.edit')
   const temp = roleCan(role, 'tables.temp')
+  // WiFi/LAN printers the shop's bridges found, for Máy in của khu (none in sample mode)
+  const [agents, setAgents] = useState<PrintAgent[] | null>(null)
+  useEffect(() => {
+    if (!manager || !networkPrintingAvailable()) return
+    let live = true
+    listAgents().then(a => live && setAgents(a), () => live && setAgents([]))
+    return () => {
+      live = false
+    }
+  }, [manager])
   const purge = roleCan(role, 'admin.delete')
   const removeArea = (a: Area) => {
     const n = floor.tables.filter(t => t.areaId === a.id).length
@@ -124,6 +136,7 @@ export function SetupScreen(props: { floor: FloorState; repo: FloorRepo; role: R
             </span>
           </header>
           )}
+          {manager && agents && <AreaPrinter area={a} agents={agents} onPick={printer => repo.saveArea({ ...a, printer }).catch(fail)} />}
           <ul className="rows">
             {areaTables(floor, a.id)
               .concat(floor.tables.filter(t => t.areaId === a.id && !t.active && !openOrdersAt(floor, t.id).length))
@@ -227,5 +240,38 @@ export function SetupScreen(props: { floor: FloorState; repo: FloorRepo; role: R
         </div>
       )}
     </div>
+  )
+}
+
+const printerKey = (p: { agentId: string; host: string; port: number }) => `${p.agentId}|${p.host}:${p.port}`
+
+/**
+ * Máy in của khu (0038): table slips of this area (tạm tính, phiếu chuyển khoản, hoá đơn) print here from any device,
+ * through the bridge that found the printer. "Theo từng máy" = each device's own printer (Cài đặt → Máy in).
+ */
+function AreaPrinter(props: { area: Area; agents: PrintAgent[]; onPick: (p: NetworkTarget | null) => void }) {
+  const cur = props.area.printer ?? null
+  const options: NetworkTarget[] = props.agents.flatMap(a =>
+    a.printers.map(p => ({ kind: 'network' as const, agentId: a.id, agentName: a.name, host: p.host, port: p.port, name: p.name || p.host })),
+  )
+  // keep the saved one even when its bridge is offline or no longer lists it
+  if (cur && !options.some(o => printerKey(o) === printerKey(cur))) options.unshift(cur)
+  const label = (o: NetworkTarget) => `${o.name}${o.name === o.host ? '' : ` (${o.host})`} · ${o.agentName || 'cầu nối'}`
+  return (
+    <label className="field area-printer">
+      <span className="field-label">Máy in của khu</span>
+      <select
+        value={cur ? printerKey(cur) : ''}
+        onChange={e => props.onPick(options.find(o => printerKey(o) === e.target.value) ?? null)}
+      >
+        <option value="">Theo từng máy (mặc định)</option>
+        {options.map(o => (
+          <option key={printerKey(o)} value={printerKey(o)}>
+            {label(o)}
+          </option>
+        ))}
+      </select>
+      {!options.length && <span className="muted">Chưa có máy in WiFi/LAN nào: thêm app cầu nối ở Cài đặt → Máy in.</span>}
+    </label>
   )
 }

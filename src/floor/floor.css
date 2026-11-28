@@ -303,6 +303,7 @@
 .table-edit .field { margin: 0; flex: 1 1 120px; }
 .table-edit .field:has(.w-qty) { flex: 0 0 auto; }
 .area-edit { align-items: flex-end; } .area-edit .field { flex: 1; min-width: 160px; }
+.area-printer { margin: 0 0 8px; max-width: 420px; } .area-printer select { width: 100%; }
 
 /* Chờ làm / Đang làm / Đã làm xong colour wins over Chờ thanh toán, the same on Bàn and Đơn (kept last so it overrides) */
 .table-tile.pg-waiting { background: var(--pg-waiting); color: #fff; }

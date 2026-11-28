@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { SAMPLE_SHOP } from '../cashier/config'
+import { cleanNetworkTarget } from '../cashier/paper'
 import { discountAmount, type PayMethod } from '../lib/billing'
 import type { VatGroup } from '../lib/pricing'
 import type { Menu } from '../menu/types'
@@ -177,7 +178,7 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
         onlineShip: shipFrom(sh.online_ship),
         timing: Object.fromEntries(stations.map(st => [s(st.id), { warn: n(st.sla_warn_min), late: n(st.sla_late_min) }])),
       },
-      areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false })),
+      areas: areas.map(a => ({ id: s(a.id), name: s(a.name), sort: n(a.sort), active: a.active !== false, printer: a.printer === undefined ? undefined : cleanNetworkTarget(a.printer) })),
       tables: tables.map(t => ({
         id: s(t.id), areaId: s(t.area_id), name: s(t.name), seats: n(t.seats ?? 4), sort: n(t.sort), active: t.active !== false,
         temporary: t.is_temporary === true, qrToken: sn(t.qr_token),
@@ -370,7 +371,16 @@ export function createSupabaseFloorRepo(db: SupabaseClient, opts: SupabaseFloorO
       }
       return { bills, lines, online }
     },
-    saveArea: a => act(() => ok(db.from('areas').upsert({ id: a.id, name: a.name.trim(), sort: a.sort, active: a.active }))),
+    saveArea: a =>
+      act(() => {
+        const row: Record<string, unknown> = { id: a.id, name: a.name.trim(), sort: a.sort, active: a.active }
+        // only sent when the screen set it, so saving an area still works before 0038 is applied
+        if (a.printer !== undefined) {
+          const p = cleanNetworkTarget(a.printer)
+          row.printer = p && { agentId: p.agentId, agentName: p.agentName, host: p.host, port: p.port, name: p.name }
+        }
+        return ok(db.from('areas').upsert(row))
+      }),
     saveShop: p =>
       act(async () => {
         const v = E.checkPaymentSettings(p)

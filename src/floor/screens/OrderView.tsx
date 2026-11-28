@@ -11,7 +11,7 @@ import { ItemPicker } from '../../menu/screens/ItemPicker'
 import { OrderScreen } from '../../menu/screens/OrderScreen'
 import type { Menu } from '../../menu/types'
 import { prebillData } from '../../cashier/bill'
-import { printBlocks } from '../../cashier/print'
+import { areaPrinterFor, printBlocks } from '../../cashier/print'
 import { receiptBlocks } from '../../cashier/receipt'
 import { quoteBill, voidNeedsManager } from '../engine'
 import { errText, go, takeQuickOpened } from '../hooks'
@@ -601,7 +601,7 @@ export function OrderView(props: { floor: FloorState; menu: Menu; repo: FloorRep
                 const blocks = receiptBlocks(prebillData(floor, order, quoteBill(floor, order.id), { at: new Date().toISOString(), printNo: order.billPrintCount + 1 }))
                 act(repo.requestBill(order.id), () => {
                   props.onInfo(`Đã in tạm tính lần ${order.billPrintCount + 1}`)
-                  printBlocks(blocks, 'Phiếu tạm tính').catch(fail)
+                  printBlocks(blocks, 'Phiếu tạm tính', areaPrinterFor(floor, order.id)).catch(fail)
                 })
               }}
             >

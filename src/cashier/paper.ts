@@ -20,10 +20,9 @@ export const TEXT_SIZES: { id: TextSize; label: string }[] = [
  * Bluetooth printer this browser was allowed to use (printers/bluetooth.ts). network: a WiFi/LAN printer reached by the
  * bridge app on a shop computer (printers/network.ts, migration 0018).
  */
-export type PrintTarget =
-  | { kind: 'dialog' }
-  | { kind: 'bluetooth'; id: string; name: string }
-  | { kind: 'network'; agentId: string; agentName: string; host: string; port: number; name: string }
+export type NetworkTarget = { kind: 'network'; agentId: string; agentName: string; host: string; port: number; name: string }
+
+export type PrintTarget = { kind: 'dialog' } | { kind: 'bluetooth'; id: string; name: string } | NetworkTarget
 
 export interface PrintSettings {
   target: PrintTarget
@@ -44,13 +43,18 @@ const OLD_KEY = 'bmd-receipt-paper'
 
 const str = (v: unknown, max = 100) => (typeof v === 'string' ? v.slice(0, max) : '')
 
+/** A WiFi/LAN printer from storage or the database (an area's printer, 0038); null when it is not one. */
+export function cleanNetworkTarget(v: unknown): NetworkTarget | null {
+  const t = (typeof v === 'object' && v ? v : {}) as Record<string, unknown>
+  if (!str(t.agentId) || !str(t.host)) return null
+  const port = Number(t.port)
+  return { kind: 'network', agentId: str(t.agentId), agentName: str(t.agentName), host: str(t.host), port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 9100, name: str(t.name) || str(t.host) }
+}
+
 function cleanTarget(v: unknown): PrintTarget {
   const t = (typeof v === 'object' && v ? v : {}) as Record<string, unknown>
   if (t.kind === 'bluetooth' && str(t.id)) return { kind: 'bluetooth', id: str(t.id), name: str(t.name) || 'Máy in Bluetooth' }
-  if (t.kind === 'network' && str(t.agentId) && str(t.host)) {
-    const port = Number(t.port)
-    return { kind: 'network', agentId: str(t.agentId), agentName: str(t.agentName), host: str(t.host), port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 9100, name: str(t.name) || str(t.host) }
-  }
+  if (t.kind === 'network') return cleanNetworkTarget(t) ?? { kind: 'dialog' }
   return { kind: 'dialog' }
 }
 
