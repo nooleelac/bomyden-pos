@@ -9,7 +9,7 @@ import { isIdle, shouldTouch } from './idle'
 import { createMemoryAuthRepo, type MemoryAuthRepo } from './memoryRepo'
 import { DEFAULT_PERMS, PERMS, normalizeMatrix, roleCan, setPermMatrix, type Perm } from './permissions'
 import { attemptPin, pinProblem } from './pin'
-import type { Role } from './types'
+import { idleText, type Role } from './types'
 import { normalizeUsername, usernameFrom, usernameProblem } from './username'
 
 // ---------------------------------------------------------------- role guards
@@ -94,6 +94,21 @@ describe('failed-PIN lockout', () => {
     const after = attemptPin(st, true, new Date('2026-10-17T12:05:01Z'), cfg)
     expect(after.result.ok).toBe(true)
     expect(after.state).toEqual({ failedCount: 0, lockedUntil: null })
+  })
+})
+
+describe('tự đăng xuất đến một tháng (0037)', () => {
+  it('saves 43000 minutes, refuses more than 31 days, and says it in days', async () => {
+    const c = clock()
+    const repo = createMemoryAuthRepo({ now: c.now })
+    await signedIn(repo, 'chuquan', '2468')
+    await repo.saveSettings({ idleMinutes: 43000 })
+    await expect(repo.saveSettings({ idleMinutes: 44641 })).rejects.toThrow('31 ngày')
+    const w = await signedIn(repo, 'lan', '3690')
+    expect(Date.parse(w.expiresAt!) - c.now().getTime()).toBe(43000 * 60_000)
+    expect(idleText(43000)).toBe('≈ 29 ngày 20 giờ')
+    expect(idleText(90)).toBe('1 giờ 30 phút')
+    expect(isIdle('cashier', 0, 42999 * 60_000, 43000)).toBe(false)
   })
 })
 

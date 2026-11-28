@@ -11,7 +11,7 @@ import { attemptPin, isLocked, pinProblem, type PinState } from './pin'
 import { normalizeUsername, usernameFrom, usernameProblem } from './username'
 import type { AuthRepo, DeviceRow } from './repo'
 import {
-  DEFAULT_AUTH_SETTINGS, ROLE_LABEL,
+  DEFAULT_AUTH_SETTINGS, IDLE_MAX_MIN, ROLE_LABEL,
   type ApprovalRequest, type ApprovalResult, type AuditEntry, type AuthSettings, type Branch, type BranchInfo, type DeviceCode, type DeviceKind, type Role,
   type Session, type SignInResult, type StaffRecord,
 } from './types'
@@ -131,14 +131,14 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
     channel?.postMessage('changed')
     changed()
   }
-  const keepToken = (t: string | null, kitchen: boolean) => {
+  const keepToken = (t: string | null) => {
     myToken = t
     if (!sync) return
     try {
       if (t) sessionStorage.setItem(sync.sessionKey, t)
       else sessionStorage.removeItem(sync.sessionKey)
-      // the kitchen display stays signed in across restarts of the browser
-      if (t && kitchen) localStorage.setItem(sync.sessionKey + '-kitchen', t)
+      // kept across restarts of the browser; the idle minutes end it (the kitchen display never)
+      if (t) localStorage.setItem(sync.sessionKey + '-kitchen', t)
       else localStorage.removeItem(sync.sessionKey + '-kitchen')
     } catch {
       /* per-tab only */
@@ -308,7 +308,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const s = await db()
       requirePerm(s, 'settings.edit')
       const n = { ...s.settings, ...p }
-      if (!Number.isInteger(n.idleMinutes) || n.idleMinutes < 1 || n.idleMinutes > 240) fail('Tự đăng xuất sau 1 đến 240 phút')
+      if (!Number.isInteger(n.idleMinutes) || n.idleMinutes < 1 || n.idleMinutes > IDLE_MAX_MIN) fail(`Tự đăng xuất sau 1 đến ${IDLE_MAX_MIN} phút (31 ngày)`)
       if (!Number.isInteger(n.maxAttempts) || n.maxAttempts < 3 || n.maxAttempts > 10) fail('Số lần nhập sai từ 3 đến 10')
       if (!Number.isInteger(n.lockMinutes) || n.lockMinutes < 1 || n.lockMinutes > 120) fail('Thời gian khoá từ 1 đến 120 phút')
       s.settings = n
@@ -329,7 +329,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const sess: SessionRow = { token: randomHex(24), staffId: row.id, deviceId: d.id, startedAt: iso(), lastSeenAt: iso(), expiresAt, endedAt: null }
       s.sessions = [...s.sessions.filter(x => !x.endedAt).slice(-50), sess]
       d.lastSeenAt = iso()
-      keepToken(sess.token, row.role === 'kitchen')
+      keepToken(sess.token)
       audit(s, 'sign_in', { device: d.name }, row.id)
       save()
       return { ok: true, session: toSession(sess, row) }
@@ -338,7 +338,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
       const s = await db()
       const r = liveSession(s, myToken)
       if (!r) {
-        if (myToken) keepToken(null, false)
+        if (myToken) keepToken(null)
         return null
       }
       return toSession(r, staffOf(s, r.staffId)!)
@@ -359,7 +359,7 @@ export function createMemoryAuthRepo(opts: MemoryAuthOptions = {}): MemoryAuthRe
         audit(s, 'sign_out', {}, r.staffId)
         save()
       }
-      keepToken(null, false)
+      keepToken(null)
     },
     async verifyManagerPin(username, pin, req): Promise<ApprovalResult> {
       const s = await db()

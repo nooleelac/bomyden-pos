@@ -16,7 +16,7 @@ import { PermissionsScreen } from './PermissionsScreen'
 import { pinProblem } from './pin'
 import { normalizeUsername, usernameFrom, usernameProblem } from './username'
 import type { DeviceRow } from './repo'
-import { ROLE_LABEL, ROLES, type AuditEntry, type AuthSettings, type Branch, type DeviceCode, type DeviceKind, type Role, type StaffInput, type StaffRecord } from './types'
+import { IDLE_MAX_MIN, ROLE_LABEL, ROLES, idleText, type AuditEntry, type AuthSettings, type Branch, type DeviceCode, type DeviceKind, type Role, type StaffInput, type StaffRecord } from './types'
 
 const TABS = [
   { id: '', label: 'Nhân viên' },
@@ -473,7 +473,7 @@ function Settings(props: Notify) {
     <section className="screen">
       <h1>Cài đặt đăng nhập</h1>
       <div className="card form-grid">
-        {num('idleMinutes', 'Tự đăng xuất khi để yên', 1, 240, 'phút', 'Không áp dụng tài khoản bếp')}
+        {num('idleMinutes', 'Tự đăng xuất khi để yên', 1, IDLE_MAX_MIN, 'phút', `${idleText(s.idleMinutes)} · tối đa ${IDLE_MAX_MIN} phút (31 ngày) · không áp dụng tài khoản bếp`)}
         {num('maxAttempts', 'Nhập sai PIN tối đa', 3, 10, 'lần')}
         {num('lockMinutes', 'Khoá PIN sau khi sai', 1, 120, 'phút')}
         {num('approvalSeconds', 'Mã duyệt có hiệu lực', 30, 600, 'giây')}

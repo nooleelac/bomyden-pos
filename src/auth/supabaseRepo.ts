@@ -41,7 +41,8 @@ function keep(sess: Session | null) {
   try {
     if (sess) sessionStorage.setItem(SESSION_KEY, JSON.stringify(sess))
     else sessionStorage.removeItem(SESSION_KEY)
-    if (sess && sess.role === 'kitchen') localStorage.setItem(SESSION_KEY, JSON.stringify(sess))
+    // kept across closing the app too: the server ends it after the idle minutes (up to a month, 0037)
+    if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess))
     else localStorage.removeItem(SESSION_KEY)
   } catch {
     /* in memory only */

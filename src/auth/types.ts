@@ -135,7 +135,20 @@ export interface AuthSettings {
   voidApproval: 'sent' | 'started'
 }
 
-export const DEFAULT_AUTH_SETTINGS: AuthSettings = { idleMinutes: 5, maxAttempts: 5, lockMinutes: 5, approvalSeconds: 120, voidApproval: 'sent' }
+/** "Tự đăng xuất khi để yên" at most 31 days (0037). */
+export const IDLE_MAX_MIN = 44640
+
+/** 43000 → "≈ 29 ngày 21 giờ", 90 → "1 giờ 30 phút". */
+export function idleText(min: number): string {
+  if (!Number.isFinite(min) || min < 1) return ''
+  const d = Math.floor(min / 1440)
+  const h = Math.floor((min % 1440) / 60)
+  const m = min % 60
+  if (d) return `≈ ${d} ngày${h ? ` ${h} giờ` : ''}`
+  return [h && `${h} giờ`, m && `${m} phút`].filter(Boolean).join(' ')
+}
+
+export const DEFAULT_AUTH_SETTINGS: AuthSettings ={ idleMinutes: 5, maxAttempts: 5, lockMinutes: 5, approvalSeconds: 120, voidApproval: 'sent' }
 
 export interface AuditQuery {
   /** ISO time, inclusive */
